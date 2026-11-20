@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { CalendarArrowDown, CircleStop, CreditCard, Pencil, Plus, ReceiptText, Repeat2, Search, Trash2 } from 'lucide-react'
+import { CalendarArrowDown, CircleStop, CreditCard, ListFilter, Pencil, Plus, ReceiptText, Repeat2, Search, Trash2 } from 'lucide-react'
 import { api } from './api'
 import { AdvanceDialog, creditLabels } from './advances'
-import { DeleteModal, ErrorNotice, Modal, MoneyInput, MonthPicker, TagPicker } from './components'
+import { DeleteModal, ErrorNotice, Modal, MoneyInput, MonthPicker, TagPicker, usePickerPopover } from './components'
 import { cardDueOn, dateLabel, formatMoney, localDate, monthLabel, parseMoney } from './finance'
 import { useMonthData } from './month-data'
 import { paymentKinds } from './payment-methods'
@@ -10,11 +10,33 @@ import { paymentKinds } from './payment-methods'
 export function Expenses({ classifications, tags, currency, month, setMonth, horizon, version, onNew, onEdit, onDelete, onCloseExpense, onAdvanced }) {
   const { data, error, reload } = useMonthData('/expenses', month, version)
   const [query, setQuery] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
+  const [departmentFilter, setDepartmentFilter] = useState(() => new Set())
+  const [categoryFilter, setCategoryFilter] = useState(() => new Set())
   const [tagFilter, setTagFilter] = useState('')
   const [kindFilter, setKindFilter] = useState('')
   const [showAdvance, setShowAdvance] = useState(false)
   const names = new Map(classifications.map(item => [item.id, item.name]))
+  const departments = classifications.filter(item => item.level === 1)
+  const categories = classifications.filter(item => item.level === 2)
+  const categoryDepartments = new Map(categories.map(item => [item.id, new Set([item.parent_id])]))
+  for (const expense of data ?? []) {
+    categoryDepartments.get(expense.category_id)?.add(expense.department_id)
+  }
+  const inDepartments = (categoryId, selected) =>
+    !selected.size || [...(categoryDepartments.get(categoryId) ?? [])].some(department => selected.has(department))
+  const categoryOptions = categories
+    .filter(item => categoryFilter.has(item.id) || inDepartments(item.id, departmentFilter))
+    .map(item => {
+      const matches = [...categoryDepartments.get(item.id)].filter(id => departmentFilter.has(id))
+      const context = (matches.length ? matches : [item.parent_id]).map(id => names.get(id)).join(' · ')
+      return { ...item, context }
+    })
+
+  function changeDepartments(selected) {
+    setDepartmentFilter(selected)
+    setCategoryFilter(previous => new Set([...previous].filter(id => inDepartments(id, selected))))
+  }
+
   const normalize = text => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR')
   const filtered = data?.filter(expense => {
     const { installment, purchase_installment: purchase, advance } = expense
@@ -26,7 +48,8 @@ export function Expenses({ classifications, tags, currency, month, setMonth, hor
       purchase && `parcela ${purchase.number}/${purchase.total} ${dateLabel(purchase.purchase_on)}`,
       installment && dateLabel(installment.scheduled_on), advance && 'antecipada antecipação',
       expense.payment_method.name, expense.payment_due_on && dateLabel(expense.payment_due_on)]
-    return (!categoryFilter || Number(categoryFilter) === expense.category_id) &&
+    return (!departmentFilter.size || departmentFilter.has(expense.department_id)) &&
+      (!categoryFilter.size || categoryFilter.has(expense.category_id)) &&
       (!tagFilter || expense.tags.some(tag => tag.id === Number(tagFilter))) &&
       (!kindFilter || types.includes(kindFilter)) &&
       normalize(labels.filter(Boolean).join(' ')).includes(normalize(query.trim()))
@@ -46,14 +69,8 @@ export function Expenses({ classifications, tags, currency, month, setMonth, hor
       <div className="filter-row expense-filters">
         <label className="search"><Search size={18} /><input type="search" aria-label="Buscar despesas"
           placeholder="Buscar lançamentos" value={query} onChange={event => setQuery(event.target.value)} /></label>
-        <select aria-label="Filtrar despesas por categoria" value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}>
-          <option value="">Todas as categorias</option>
-          {classifications.filter(item => item.level === 1).map(department =>
-            <optgroup key={department.id} label={department.name}>
-              {classifications.filter(item => item.parent_id === department.id).map(item =>
-                <option key={item.id} value={item.id}>{item.name}</option>)}
-            </optgroup>)}
-        </select>
+        <ExpenseFilter label="Departamentos" options={departments} selected={departmentFilter} onChange={changeDepartments} />
+        <ExpenseFilter label="Categorias" options={categoryOptions} selected={categoryFilter} onChange={setCategoryFilter} />
         <select aria-label="Filtrar despesas por tag" value={tagFilter} onChange={event => setTagFilter(event.target.value)}>
           <option value="">Todas as tags</option>
           {tags.map(tag => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
@@ -118,11 +135,40 @@ export function Expenses({ classifications, tags, currency, month, setMonth, hor
         setShowAdvance(false)
         setQuery('')
         setTagFilter('')
-        setCategoryFilter('')
+        setDepartmentFilter(new Set())
+        setCategoryFilter(new Set())
         setKindFilter('antecipada')
         onAdvanced(paidOn, count)
       }} />}
   </>
+}
+
+function ExpenseFilter({ label, options, selected, onChange }) {
+  const { open, setOpen, container, trigger, id } = usePickerPopover()
+  return <div className="expense-filter" ref={container}>
+    <button type="button" className="button secondary expense-filter-trigger" ref={trigger} aria-expanded={open}
+      aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}>
+      <ListFilter size={17} aria-hidden="true" />{label}
+      {selected.size > 0 && <span className="filter-count">{selected.size}</span>}
+    </button>
+    {open && <div className="picker-popover expense-filter-options" id={id} role="group" aria-label={label}>
+      <div className="filter-options-heading">
+        <strong>{label}</strong>
+        <button type="button" className="button secondary compact" disabled={!selected.size}
+          onClick={() => onChange(new Set())}>Limpar</button>
+      </div>
+      {options.length > 0 ? <div className="filter-options-list">{options.map(({ id: itemId, name, context }) =>
+        <label key={itemId}>
+          <input type="checkbox" checked={selected.has(itemId)} onChange={event => {
+            const next = new Set(selected)
+            if (event.target.checked) next.add(itemId)
+            else next.delete(itemId)
+            onChange(next)
+          }} />
+          <span>{name}{context && <small>{context}</small>}</span>
+        </label>)}</div> : <p className="field-note">Nenhuma opção disponível.</p>}
+    </div>}
+  </div>
 }
 
 export function ExpenseDialog({ expense, remove, close, currency, month, horizon, classifications, tags, paymentMethods, onClose, onSaved }) {

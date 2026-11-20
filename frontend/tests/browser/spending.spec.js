@@ -97,3 +97,67 @@ test('soma os tetos por departamento e mostra as categorias ao expandir', async 
   await housing.click()
   await expect(condo).toBeHidden()
 })
+
+test('combina vários departamentos e categorias com os vínculos originais das despesas', async ({ page }) => {
+  const month = '2024-06'
+  async function classification(name, parent_id) {
+    const response = await page.request.post('/api/classifications', { data: { name, parent_id } })
+    expect(response.ok()).toBe(true)
+    return (await response.json()).id
+  }
+  const north = await classification('Projeto Norte')
+  const south = await classification('Projeto Sul')
+  const supplies = await classification('Material de obra', north)
+  const fees = await classification('Taxas de obra', north)
+  const freight = await classification('Frete de obra', south)
+  for (const [department_id, category_id, description, amount_cents] of [
+    [north, supplies, 'Compra de material', 7_000],
+    [north, fees, 'Pagamento de taxa', 12_000],
+    [south, freight, 'Pagamento de frete', 18_000],
+  ]) {
+    const response = await page.request.post('/api/expenses', {
+      data: { department_id, category_id, description, amount_cents, occurred_on: `${month}-10` },
+    })
+    expect(response.ok()).toBe(true)
+  }
+  const moved = await page.request.put(`/api/classifications/${supplies}`, {
+    data: { name: 'Material de obra', parent_id: south },
+  })
+  expect(moved.ok()).toBe(true)
+
+  await page.goto('/#despesas')
+  await page.getByLabel('Mês de referência').fill(month)
+  const rows = page.getByRole('list', { name: 'Lançamentos do mês' }).getByRole('listitem')
+  await expect(rows).toHaveCount(3)
+  const departmentButton = page.getByRole('button', { name: /^Departamentos/ })
+  const categoryButton = page.getByRole('button', { name: /^Categorias/ })
+  const departments = page.getByRole('group', { name: 'Departamentos' })
+  const categories = page.getByRole('group', { name: 'Categorias' })
+
+  await departmentButton.click()
+  await departments.getByRole('checkbox', { name: 'Projeto Norte' }).check()
+  await expect(rows).toHaveCount(2)
+  await categoryButton.click()
+  await expect(departments).toHaveCount(0)
+  await expect(categories.getByRole('checkbox', { name: /Frete de obra/ })).toHaveCount(0)
+  await categories.getByRole('checkbox', { name: /Material de obra.*Projeto Norte/ }).check()
+  await expect(rows).toHaveCount(1)
+  await expect(rows).toContainText('Compra de material')
+  await expect(page.getByText('R$ 70,00', { exact: true })).toHaveCount(2)
+
+  await departmentButton.click()
+  await departments.getByRole('checkbox', { name: 'Projeto Sul' }).check()
+  await expect(departmentButton).toHaveText('Departamentos2')
+  await categoryButton.click()
+  await categories.getByRole('checkbox', { name: /Frete de obra/ }).check()
+  await expect(rows).toHaveCount(2)
+  await expect(rows.filter({ hasText: 'Pagamento de taxa' })).toHaveCount(0)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+  await categories.getByRole('button', { name: 'Limpar' }).click()
+  await expect(rows).toHaveCount(3)
+  await categoryButton.press('Escape')
+  await expect(categories).toHaveCount(0)
+  await expect(categoryButton).toBeFocused()
+})

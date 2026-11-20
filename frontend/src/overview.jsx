@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Wallet, ShieldCheck, ChevronRight, House, Utensils, CarFront, HeartPulse, ShoppingBag, Sparkles, Handshake, Shapes, Plus, ReceiptText, Percent, Banknote } from 'lucide-react'
-import { ErrorNotice, MonthPicker } from './components'
+import { CalendarMonthPicker, ErrorNotice } from './components'
 import { BudgetUsage } from './budgets'
 import { budgetPercent, formatMoney } from './finance'
 import { useMonthData } from './month-data'
@@ -29,7 +29,7 @@ export function Overview({ settings, classifications, revisions, tags, month, se
     <section className="page-heading overview-heading">
       <div><h1>Visão geral</h1><p>Acompanhe a renda prevista, os gastos e os tetos do mês.</p></div>
       <div className="heading-actions">
-        <MonthPicker month={month} setMonth={setMonth} />
+        <CalendarMonthPicker month={month} setMonth={setMonth} />
         <button className="button secondary" onClick={() => setCreditOpen(true)}><Banknote size={18} /> Novo crédito</button>
         <button className="button primary" onClick={onNewExpense}><Plus size={18} /> Nova despesa</button>
       </div>

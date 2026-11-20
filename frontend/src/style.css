@@ -114,6 +114,22 @@ h1 { font-size: clamp(1.9rem, 3vw, 2.28rem); font-weight: 730; letter-spacing: -
   padding: 0 10px; background: var(--surface); color: var(--accent); box-shadow: var(--shadow);
 }
 .period input { min-width: 143px; width: 100%; min-height: 40px; border: 0; background: transparent; color: CanvasText; font-size: .88rem; }
+.calendar-period { position: relative; gap: 1px; padding-inline: 3px; }
+.calendar-period > input { width: 140px; min-width: 0; }
+.calendar-period > input::-webkit-calendar-picker-indicator { display: none; }
+.calendar-period > .icon-button { width: 31px; }
+.calendar-period .calendar-trigger { color: var(--accent); }
+.picker-popover {
+  position: absolute; z-index: 2; inset: calc(100% + 6px) auto auto 0;
+  width: min(280px, calc(100vw - 60px)); padding: 10px;
+  border: 1px solid var(--border); border-radius: 11px; background: var(--surface);
+  color: CanvasText; box-shadow: 0 8px 24px #152e2229;
+}
+.calendar-year { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.calendar-months { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.calendar-months button { min-height: 36px; padding: 4px 2px; border-radius: 7px; font-size: .83rem; text-transform: capitalize; }
+.calendar-months button:hover { background: var(--soft); }
+.calendar-months button[aria-pressed="true"] { background: var(--green); color: var(--accent); font-weight: 650; }
 .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 16px 0; }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); min-width: 0; }
 .metric { display: flex; align-items: flex-start; gap: 13px; padding: 15px; }
@@ -254,6 +270,8 @@ select { padding: 0 9px; }
 }
 
 .heading-actions { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: 9px; }
+.overview-heading { flex-wrap: wrap; }
+.overview-heading .heading-actions { max-width: 100%; }
 .metrics-spending { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .metric strong { overflow-wrap: anywhere; }
 .category-spending, .budget-departments, .budget-categories, .expense-list, .tag-register { list-style: none; padding: 0; margin: 0; }
@@ -458,10 +476,26 @@ select { padding: 0 9px; }
 .expense-filters .search { flex: 1; }
 .expense-filters .search input, .expense-filters select { width: 100%; }
 .expense-filters select { width: auto; max-width: 100%; }
+.expense-filter { position: relative; }
+.expense-filter-trigger[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.filter-count { min-width: 21px; padding: 2px 5px; border-radius: 20px; background: var(--green); color: var(--accent); font-size: .76rem; }
+.filter-options-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.filter-options-list { max-height: min(280px, 46vh); overflow: auto; padding: 4px; }
+.filter-options-list label {
+  display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 5px 6px;
+  border-radius: 7px; font-size: .86rem; overflow-wrap: anywhere; cursor: pointer;
+}
+.filter-options-list label:hover { background: var(--soft); }
+.filter-options-list label:has(:checked) { background: var(--green); }
+.filter-options-list input { flex: none; accent-color: var(--accent); }
+.filter-options-list small { display: block; color: var(--muted); }
 
 @media (max-width: 1150px) {
   .metrics-spending { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metrics-spending > :first-child, .metrics-spending > :last-child { grid-column: 1 / -1; }
+}
+@media (min-width: 551px) and (max-width: 880px) {
+  .expense-filters .search { flex-basis: 100%; }
 }
 @media (max-width: 550px) {
   .heading-actions { max-width: 100%; }
@@ -473,6 +507,7 @@ select { padding: 0 9px; }
   .expense-row .tree-actions { grid-row: 2; grid-column: 2; align-self: end; }
   .tree-actions .close-expense span { display: none; }
   .expense-filters select { width: 100%; }
+  .expense-filter-trigger { width: 100%; justify-content: flex-start; }
 }
 @media (max-width: 380px) {
   .metrics-spending { grid-template-columns: minmax(0, 1fr); }

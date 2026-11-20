@@ -65,3 +65,45 @@ test('manages a category on a small screen and restores it after reloading', asy
   await expect(page.getByText('Nenhum item encontrado.')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 })
+
+test('navega por meses e anos no calendário da visão geral', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  const picker = page.getByLabel('Mês de referência')
+  await picker.fill('2027-01')
+  await page.getByRole('button', { name: 'Mês anterior' }).click()
+  await expect(picker).toHaveValue('2026-12')
+  await page.getByRole('button', { name: 'Próximo mês' }).click()
+  await expect(picker).toHaveValue('2027-01')
+
+  const trigger = page.getByRole('button', { name: 'Calendário de meses' })
+  await trigger.click()
+  const calendar = page.getByRole('group', { name: 'Escolher mês' })
+  await expect(calendar.getByRole('button', { name: 'janeiro' })).toHaveAttribute('aria-pressed', 'true')
+  await calendar.getByRole('button', { name: 'Ano anterior' }).click()
+  await expect(calendar.getByText('2026', { exact: true })).toBeVisible()
+  await calendar.getByRole('button', { name: 'Próximo ano' }).click()
+  await calendar.getByRole('button', { name: 'Próximo ano' }).click()
+  await expect(calendar.getByText('2028', { exact: true })).toBeVisible()
+  await expect(picker).toHaveValue('2027-01')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+
+  await Promise.all([
+    page.waitForResponse(response => response.url().includes('/api/spending?month=2028-03') && response.ok()),
+    calendar.getByRole('button', { name: 'março' }).click(),
+  ])
+  await expect(picker).toHaveValue('2028-03')
+  await expect(calendar).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+
+  await trigger.press('Enter')
+  await expect(calendar.getByText('2028', { exact: true })).toBeVisible()
+  await trigger.press('Escape')
+  await expect(calendar).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+
+  await picker.fill('1900-01')
+  await expect(page.getByRole('button', { name: 'Mês anterior' })).toBeDisabled()
+  await trigger.click()
+  await expect(calendar.getByRole('button', { name: 'Ano anterior' })).toBeDisabled()
+})
