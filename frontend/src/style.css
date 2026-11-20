@@ -70,13 +70,11 @@ h1, h2, p { margin: 0; }
   color: #e8f4ed;
 }
 .brand { display: flex; align-items: center; gap: 11px; margin: 0 8px 42px; }
-.brand > span:last-child { min-width: 0; }
 .brand-mark {
   display: grid; flex: none; place-items: center; width: 41px; height: 41px;
   border-radius: 12px; background: #b9eccf; color: #163e32;
 }
-.brand strong { display: block; font-weight: 720; font-size: 1.17rem; letter-spacing: -.025em; overflow-wrap: anywhere; }
-.brand small { display: block; color: #a8c4b8; font-size: .78rem; }
+.brand strong { min-width: 0; font-weight: 720; font-size: 1.02rem; line-height: 1.2; letter-spacing: -.025em; overflow-wrap: anywhere; }
 .sidebar nav { display: grid; gap: 6px; }
 .sidebar nav a {
   display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 13px;

@@ -4,6 +4,10 @@ import { followingMonth, localMonth } from '../../src/finance.js'
 test('navigates, updates preferences and reads a salary revision across the stack', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Visão geral' })).toBeVisible()
+  await expect(page).toHaveTitle('Controle Financeiro')
+  await expect(page.getByRole('banner').getByText('Controle Financeiro', { exact: true })).toBeVisible()
+  const brand = page.getByRole('link', { name: 'Controle Financeiro', exact: true })
+  await expect(brand.locator('.lucide-calculator')).toBeVisible()
   const income = page.getByRole('article', { name: 'Renda comprometida' })
   await expect(income.getByText(/14\.014,87/)).toBeVisible()
   await expect(page.getByText('Salário líquido previsto', { exact: true })).toHaveCount(0)
@@ -15,6 +19,7 @@ test('navigates, updates preferences and reads a salary revision across the stac
   await page.getByLabel('Caixa inicial').fill('1.025,84')
   await page.getByRole('button', { name: 'Salvar configurações' }).click()
   await expect(page.getByText('Configurações salvas.')).toBeVisible()
+  await expect(page).toHaveTitle('Minha Moradia')
   await page.getByRole('button', { name: 'Ativar tema escuro' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Banknote, House, LayoutDashboard, Layers3, Settings2, Moon, Sun, ChevronRight, ShieldCheck, Menu, X, ReceiptText, Tags, CreditCard } from 'lucide-react'
+import { Banknote, Calculator, LayoutDashboard, Layers3, Settings2, Moon, Sun, ChevronRight, ShieldCheck, Menu, X, ReceiptText, Tags, CreditCard } from 'lucide-react'
 import { api } from './api'
 import { ErrorNotice } from './components'
 import { Overview } from './overview'
@@ -70,11 +70,13 @@ function App() {
 
   const theme = data?.settings.theme
   const dark = theme === 'dark' || (theme === 'system' && systemDark)
+  const configuredName = data?.settings.name
+  const appName = configuredName && configuredName !== 'Moradia' ? configuredName : 'Controle Financeiro'
   const horizon = data && addMonthsToDate(localDate(), data.settings.projection_months)
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-    document.title = `${data?.settings.name || 'Moradia'} | Gestão Financeira`
-  }, [dark, data?.settings.name])
+    document.title = appName
+  }, [dark, appName])
 
   async function toggleTheme() {
     setSwitching(true)
@@ -109,8 +111,8 @@ function App() {
     {mobileOpen && <button className="nav-shade" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
     <aside className={`sidebar ${mobileOpen ? 'open' : ''}`}>
       <a className="brand" href="#inicio" onClick={() => setMobileOpen(false)}>
-        <span className="brand-mark"><House size={21} strokeWidth={2.4} /></span>
-        <span><strong>{data?.settings.name || 'Moradia'}</strong><small>Gestão Financeira</small></span>
+        <span className="brand-mark"><Calculator size={21} strokeWidth={2.4} aria-hidden="true" /></span>
+        <strong>{appName}</strong>
       </a>
       <nav aria-label="Menu principal">
         {pages.map(({ id, label, Icon }) => <a key={id} href={`#${id}`}
@@ -126,7 +128,7 @@ function App() {
         <div className="breadcrumb">
           <button className="icon-button mobile-toggle" aria-label={mobileOpen ? 'Fechar menu' : 'Abrir menu'}
             onClick={() => setMobileOpen(!mobileOpen)} aria-expanded={mobileOpen}>{mobileOpen ? <X size={21} /> : <Menu size={21} />}</button>
-          <span>{data?.settings.name || 'Moradia'}</span><ChevronRight size={14} /><strong>{page.label}</strong>
+          <span>{appName}</span><ChevronRight size={14} /><strong>{page.label}</strong>
         </div>
         <button className="icon-button theme-button" aria-label={dark ? 'Ativar tema claro' : 'Ativar tema escuro'}
           disabled={!data || switching} onClick={toggleTheme}>{dark ? <Sun size={19} /> : <Moon size={19} />}</button>
