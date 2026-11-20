@@ -102,12 +102,16 @@ def delete_tag(tag_id: int, db: Db):
 
 
 @router.get("/expenses", response_model=list[ExpenseOutput])
-def list_expenses(db: Db, month: MonthQuery = None):
+def list_expenses(db: Db, month: MonthQuery = None, department_id: int | None = None, category_id: int | None = None):
     today = local_date()
     reference = month_start(month) if month else today.replace(day=1)
     query = expense_ledger(select(Expense, PurchaseInstallment), reference, expense_horizon(db, today)).options(
         selectinload(Expense.tags), joinedload(Expense.agreement), joinedload(Expense.payment_method), contains_eager(Expense.advance),
     )
+    if department_id is not None:
+        query = query.where(Expense.department_id == department_id)
+    if category_id is not None:
+        query = query.where(Expense.category_id == category_id)
     results = (expense_result(expense, reference, today, purchase) for expense, purchase in db.execute(query))
     return sorted(results, key=lambda item: (item.occurred_on, item.id), reverse=True)
 
@@ -287,6 +291,7 @@ def read_spending(db: Db, month: MonthQuery = None):
     reference = month_start(month) if month else today.replace(day=1)
     categories: dict[int, int] = defaultdict(int)
     departments: dict[int, int] = defaultdict(int)
+    categories_by_department: dict[int, dict[int, int]] = defaultdict(dict)
     count = 0
     amount = func.coalesce(InstallmentAdvance.paid_cents, PurchaseInstallment.amount_cents, Expense.amount_cents)
     grouped = expense_ledger(select(Expense.department_id, Expense.category_id, func.sum(amount), func.count()),
@@ -294,6 +299,7 @@ def read_spending(db: Db, month: MonthQuery = None):
     for department, category, subtotal, quantity in db.execute(grouped):
         categories[category] += subtotal
         departments[department] += subtotal
+        categories_by_department[department][category] = subtotal
         count += quantity
 
     latest = select(BudgetRevision.category_id, func.max(BudgetRevision.effective_month).label("month")).where(
@@ -309,4 +315,4 @@ def read_spending(db: Db, month: MonthQuery = None):
                                       spent_cents=spent, available_cents=budget.limit_cents - spent))
     return {"month": reference.isoformat()[:7], "total_cents": sum(departments.values()),
             "expense_count": count, "by_category": dict(categories), "by_department": dict(departments),
-            "budgets": budgets}
+            "categories_by_department": dict(categories_by_department), "budgets": budgets}

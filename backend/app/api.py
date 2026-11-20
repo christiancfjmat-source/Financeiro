@@ -4,11 +4,11 @@ import unicodedata
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .models import Classification, SalaryRevision, Settings, Tag
+from .models import BudgetRevision, Classification, Expense, SalaryRevision, Settings, Tag
 from .schemas import ClassificationInput, ClassificationOutput, Preferences, Revision, ThemePreference
 
 router = APIRouter(prefix="/api")
@@ -192,6 +192,23 @@ def update_classification(item_id: int, data: ClassificationInput, db: Db):
 @router.delete("/classifications/{item_id}", status_code=204)
 def delete_classification(item_id: int, db: Db):
     item = find(db, Classification, item_id)
+    children = select(Classification.id).where(Classification.parent_id == item_id)
+    if db.scalar(select(children.exists())):
+        raise HTTPException(409, "Este item tem categorias ou subcategorias vinculadas. Você pode desativá-lo.")
+    expenses = select(Expense.id).where(or_(
+        Expense.department_id == item_id, Expense.category_id == item_id, Expense.subcategory_id == item_id,
+    ))
+    if db.scalar(select(expenses.exists())):
+        raise HTTPException(409, "Este item tem despesas vinculadas. Você pode desativá-lo para preservar o histórico.")
+    if item.level == 2:
+        history = select(BudgetRevision.category_id).where(
+            BudgetRevision.category_id == item_id,
+            BudgetRevision.effective_month < current_month(),
+            BudgetRevision.limit_cents.is_not(None),
+        )
+        if db.scalar(select(history.exists())):
+            raise HTTPException(409, "Esta categoria tem tetos de meses encerrados. Você pode desativá-la para preservar o histórico.")
+        db.execute(delete(BudgetRevision).where(BudgetRevision.category_id == item_id))
     db.delete(item)
     save(db, "Há registros vinculados a este item. Você pode desativá-lo.")
     return Response(status_code=204)

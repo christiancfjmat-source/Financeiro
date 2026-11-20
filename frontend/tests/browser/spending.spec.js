@@ -161,3 +161,61 @@ test('combina vários departamentos e categorias com os vínculos originais das 
   await expect(categories).toHaveCount(0)
   await expect(categoryButton).toBeFocused()
 })
+
+test('filtra categorias pela rosca e abre os lançamentos no próprio painel', async ({ page }) => {
+  const month = addMonthsToDate(localDate(), 16).slice(0, 7)
+  const classifications = await (await page.request.get('/api/classifications')).json()
+  const entries = [
+    ['Aluguel', 20_000, 10_000, 'Aluguel para consulta'],
+    ['Energia elétrica', 5_000, 10_000, 'Conta de luz para consulta'],
+    ['Combustível', null, 5_000, 'Abastecimento para consulta'],
+  ]
+  for (const [name, limit_cents, amount_cents, description] of entries) {
+    const category = classifications.find(item => item.name === name)
+    const path = `/api/budgets/${category.id}`
+    const budget = limit_cents == null ? await page.request.delete(path) : await page.request.put(path, { data: { limit_cents } })
+    expect(budget.ok()).toBe(true)
+    const expense = await page.request.post('/api/expenses', { data: {
+      category_id: category.id, department_id: category.parent_id, occurred_on: `${month}-12`, amount_cents, description,
+    } })
+    expect(expense.ok()).toBe(true)
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByLabel('Mês de referência').fill(month)
+  const chart = page.getByRole('region', { name: 'Gastos por departamento' })
+  const categories = page.getByRole('region', { name: 'Gastos por categoria' })
+  const housing = chart.getByRole('button', { name: /^Moradia/ })
+  const fuel = categories.getByRole('button', { name: /^Combustível/ })
+  await expect(fuel).toContainText('Sem teto')
+  const ring = chart.locator('.donut-ring')
+  const { width, height } = await ring.boundingBox()
+  await ring.click({ position: { x: width * .75, y: height * .25 } })
+  await expect(housing).toHaveAttribute('aria-pressed', 'true')
+  await expect(fuel).toHaveCount(0)
+  const rent = categories.getByRole('button', { name: /^Aluguel/ })
+  await expect(rent).toContainText('R$ 100,00')
+  await expect(rent).toContainText('R$ 200,00')
+  await expect(rent).toContainText('50% do teto')
+  await expect(rent).toContainText('Dentro do teto')
+  const energy = categories.getByRole('button', { name: /^Energia elétrica/ })
+  await expect(energy).toContainText('200% do teto')
+  await expect(energy).toContainText('Ultrapassado')
+
+  await energy.click()
+  const detail = categories.getByRole('list', { name: 'Despesas de Energia elétrica' })
+  await expect(detail.getByRole('listitem')).toHaveCount(1)
+  await expect(detail.getByText('Conta de luz para consulta')).toBeVisible()
+  await expect(detail.getByText('R$ 100,00')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+
+  await chart.getByRole('button', { name: /^Transporte/ }).click()
+  await expect(detail).toHaveCount(0)
+  await expect(energy).toHaveCount(0)
+  await fuel.click()
+  await expect(categories.getByRole('list', { name: 'Despesas de Combustível' })
+    .getByText('Abastecimento para consulta')).toBeVisible()
+  await chart.getByRole('button', { name: 'Todos', exact: true }).click()
+  await expect(energy).toBeVisible()
+  await expect(fuel).toHaveAttribute('aria-expanded', 'false')
+})

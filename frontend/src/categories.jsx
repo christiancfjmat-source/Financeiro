@@ -156,7 +156,9 @@ function CategoryModal({ mode, item, parent, items, onClose, onSuccess }) {
         <label className="field">Nome<input autoFocus maxLength={80} required value={name} onChange={event => setName(event.target.value)} /></label>
       </> : <>
         <p>{action} <strong>{item.name}</strong>?</p>
-        {isDelete && <p className="muted">A exclusão é permanente. Itens com vínculos podem ser desativados.</p>}
+        {isDelete && <p className="muted">{item.level === 2
+          ? 'A exclusão é permanente e também remove o teto vigente, se houver.'
+          : 'A exclusão é permanente.'}</p>}
         {mode === 'toggle' && item.active && item.level < 3 && <p className="muted">As categorias e subcategorias vinculadas também serão desativadas.</p>}
       </>}
       <footer className="dialog-actions">

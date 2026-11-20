@@ -51,7 +51,7 @@ function BudgetDial({ spent, budget, income, money }) {
   </>
 }
 
-export function DepartmentDonut({ amounts, classifications, money, error }) {
+export function DepartmentDonut({ amounts, classifications, money, error, selected, onSelect }) {
   const departments = classifications.filter(item => item.level === 1)
   const byId = new Map(departments.map((item, index) => [item.id, {
     name: item.name,
@@ -59,32 +59,51 @@ export function DepartmentDonut({ amounts, classifications, money, error }) {
   }]))
   const entries = Object.entries(amounts || {}).filter(([, amount]) => amount > 0)
     .sort((a, b) => b[1] - a[1]).map(([key, amount]) => ({
-      id: key, amount, ...byId.get(Number(key)),
+      id: Number(key), amount, ...byId.get(Number(key)),
     }))
   const total = entries.reduce((sum, item) => sum + item.amount, 0)
   let cumulative = 0
   const slices = entries.map(item => {
-    const start = cumulative / total * 100
+    const start = cumulative / total
     cumulative += item.amount
-    return `${item.color} ${start}% ${cumulative / total * 100}%`
+    return { ...item, start, end: cumulative / total }
   })
+  const active = entries.find(item => item.id === selected)
+  const gradient = slices.map(item => {
+    const color = active && item.id !== active.id ? `color-mix(in srgb, ${item.color} 32%, var(--surface))` : item.color
+    return `${color} ${item.start * 100}% ${item.end * 100}%`
+  }).join(', ')
+
+  function selectSlice(event) {
+    const { left, top, width } = event.currentTarget.getBoundingClientRect()
+    const x = (event.clientX - left) / width - .5
+    const y = (event.clientY - top) / width - .5
+    const radius = Math.hypot(x, y)
+    if (radius < .32 || radius > .5) return
+    const fraction = (Math.atan2(x, -y) / (2 * Math.PI) + 1) % 1
+    const slice = slices.find(item => fraction < item.end)
+    if (slice) onSelect(slice.id)
+  }
 
   return <section className="panel distribution" aria-label="Gastos por departamento">
     <div className="panel-heading">
       <div><h2>Gastos por departamento</h2><p>Participação nas despesas do mês</p></div>
+      {active && <button className="button secondary compact" type="button" onClick={() => onSelect(null)}>Todos</button>}
     </div>
     {!amounts && !error && <p className="empty" role="status">Carregando gastos…</p>}
     {amounts && (entries.length === 0 ? <p className="empty">Nenhuma despesa registrada neste mês.</p>
       : <div className="department-donut">
-        <div className="donut-ring" style={{ backgroundImage: `conic-gradient(${slices.join(', ')})` }}>
-          <div className="donut-center"><span>Total do mês</span><strong>{money(total)}</strong></div>
+        <div className="donut-ring" style={{ backgroundImage: `conic-gradient(${gradient})` }} onClick={selectSlice} aria-hidden="true">
+          <div className="donut-center"><span>{active?.name ?? 'Total do mês'}</span><strong>{money(active?.amount ?? total)}</strong></div>
         </div>
         <ul className="donut-legend" aria-label="Despesas por departamento">
           {entries.map(item => <li key={item.id}>
-            <span className="donut-key" aria-hidden="true" style={{ backgroundColor: item.color }} />
-            <span className="donut-label">{item.name}</span>
-            <strong>{money(item.amount)}</strong>
-            <span className="donut-percent">{percent.format(item.amount / total)}</span>
+            <button type="button" aria-pressed={item.id === selected} onClick={() => onSelect(item.id)}>
+              <span className="donut-key" aria-hidden="true" style={{ backgroundColor: item.color }} />
+              <span className="donut-label">{item.name}</span>
+              <strong>{money(item.amount)}</strong>
+              <span className="donut-percent">{percent.format(item.amount / total)}</span>
+            </button>
           </li>)}
         </ul>
       </div>)}

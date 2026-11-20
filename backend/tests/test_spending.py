@@ -99,6 +99,39 @@ def test_budget_changes_and_removal_apply_from_current_month_onward(client, monk
     assert [limit(month) for month in ("2027-01", "2027-02", "2027-03")] == [None, 92_000, 92_000]
 
 
+def test_delete_category_with_only_current_budget_preserves_historical_budgets(client, monkeypatch):
+    today = date(2026, 11, 20)
+    for module in (api, spending_api):
+        monkeypatch.setattr(module, "local_date", lambda: today)
+    catalog = items(client)
+    condo = catalog["Condomínio"]
+    rent = catalog["Aluguel"]["id"]
+    supermarket = catalog["Supermercado"]["id"]
+    for category in (condo["id"], rent, supermarket):
+        assert client.put(f"/api/budgets/{category}", json={"limit_cents": 40_000}).status_code == 200
+
+    path = f"/api/classifications/{condo['id']}"
+    disabled = client.put(path, json={"name": condo["name"], "parent_id": condo["parent_id"], "active": False})
+    assert disabled.status_code == 200
+    assert client.delete(path).status_code == 204
+    assert "Condomínio" not in items(client)
+    assert client.get(f"/api/budgets/{condo['id']}").status_code == 404
+
+    assert client.post("/api/expenses", json=expense_payload(client)).status_code == 201
+    blocked = client.delete(f"/api/classifications/{supermarket}")
+    assert blocked.status_code == 409 and "despesas vinculadas" in blocked.json()["detail"]
+    assert client.get(f"/api/budgets/{supermarket}").json()["limit_cents"] == 40_000
+
+    today = date(2026, 12, 10)
+    blocked = client.delete(f"/api/classifications/{rent}")
+    assert blocked.status_code == 409 and "tetos de meses encerrados" in blocked.json()["detail"]
+    for month in ("2026-11", "2026-12"):
+        report = client.get(f"/api/spending?month={month}").json()
+        assert {item["category_id"]: item["limit_cents"] for item in report["budgets"]} == {
+            rent: 40_000, supermarket: 40_000,
+        }
+
+
 def test_validation_and_linked_tags(client):
     payload = expense_payload(client)
     for key in ("amount_cents", "occurred_on", "category_id"):
@@ -134,6 +167,15 @@ def test_existing_expense_keeps_department_after_category_moves(client):
     report = client.get("/api/spending?month=2026-11").json()
     assert report["by_department"] == {str(payload["department_id"]): 32_599, str(new_parent): 32_599}
     assert report["by_category"] == {str(payload["category_id"]): 65_198}
+    assert report["categories_by_department"] == {
+        str(payload["department_id"]): {str(payload["category_id"]): 32_599},
+        str(new_parent): {str(payload["category_id"]): 32_599},
+    }
+    path = f"/api/expenses?month=2026-11&category_id={payload['category_id']}"
+    assert len(client.get(path).json()) == 2
+    old, = client.get(f"{path}&department_id={payload['department_id']}").json()
+    new, = client.get(f"{path}&department_id={new_parent}").json()
+    assert old["id"] == expense["id"] and new["id"] != old["id"]
 
 
 def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path, monkeypatch):
