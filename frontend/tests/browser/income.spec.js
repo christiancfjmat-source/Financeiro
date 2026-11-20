@@ -1,0 +1,138 @@
+import { expect, test } from '@playwright/test'
+import { addMonthsToDate, followingMonth, formatMoney, localDate } from '../../src/finance.js'
+
+test('usa o crédito eventual do mês nos indicadores de renda e saldo', async ({ page }) => {
+  const month = addMonthsToDate(localDate(), 18).slice(0, 7)
+  const classifications = await (await page.request.get('/api/classifications')).json()
+  const salary = await (await page.request.get(`/api/salary?month=${month}`)).json()
+  for (const [name, limit_cents] of [['Aluguel', 200_000], ['Supermercado', 60_000]]) {
+    const category = classifications.find(item => item.name === name)
+    const response = await page.request.put(`/api/budgets/${category.id}?month=${month}`, { data: { limit_cents } })
+    expect(response.ok()).toBe(true)
+  }
+  const category = classifications.find(item => item.name === 'Combustível')
+  const expense = await page.request.post('/api/expenses', { data: {
+    occurred_on: `${month}-10`, amount_cents: 80_000, department_id: category.parent_id, category_id: category.id,
+  } })
+  expect(expense.ok()).toBe(true)
+
+  await page.goto('/#configuracoes')
+  const credits = page.getByRole('region', { name: 'Créditos', exact: true })
+  await credits.getByRole('button', { name: 'Novo crédito' }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Mês do crédito').fill(month)
+  await dialog.getByLabel('Valor do crédito').fill('1.200,00')
+  await dialog.getByLabel('Descrição (opcional)').fill('Crédito de teste')
+  await dialog.getByRole('button', { name: 'Salvar crédito' }).click()
+  await expect(credits.getByText('Crédito de teste')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Visão geral', exact: true }).click()
+  const metrics = page.getByRole('region', { name: 'Indicadores financeiros' })
+  await expect(metrics.getByRole('heading')).toHaveText([
+    'Despesas do mês', 'Renda comprometida', 'Saldo do mês', 'Saldo se atingir os tetos',
+  ])
+  const income = salary.amount_cents + 120_000
+  const committed = metrics.getByRole('article', { name: 'Renda comprometida' })
+  const percentage = new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 1 }).format(80_000 / income)
+  await expect(committed.getByText(percentage, { exact: true })).toBeVisible()
+  await expect(committed.getByText(`Renda do mês ${formatMoney(income, 'BRL')}`)).toBeVisible()
+  await expect(metrics.getByRole('article', { name: 'Saldo do mês', exact: true })
+    .getByText(formatMoney(income - 80_000, 'BRL'), { exact: true })).toBeVisible()
+  const plan = metrics.getByRole('article', { name: 'Saldo se atingir os tetos' })
+  await expect(plan.getByText(formatMoney(income - 260_000, 'BRL'), { exact: true })).toBeVisible()
+  await expect(plan.getByText('Tetos do mês R$ 2.600,00')).toBeVisible()
+  const gauge = page.getByRole('region', { name: 'Medidor do orçamento' })
+  const dial = gauge.getByRole('meter', { name: 'Despesas em relação à renda' })
+  await expect(dial).toHaveAttribute('aria-valuenow', '80000')
+  await expect(dial).toHaveAttribute('aria-valuemax', String(income))
+  await expect(dial.locator('.dial-track')).toHaveCSS('background-image', /conic-gradient/)
+  await expect(gauge.getByText('100% da renda')).toBeVisible()
+  await expect(gauge.getByText('R$ 2.600,00')).toBeVisible()
+  const donut = page.getByRole('region', { name: 'Gastos por departamento' })
+  await expect(donut.locator('.donut-ring')).toHaveCSS('background-image', /conic-gradient/)
+  await expect(donut.getByRole('listitem')).toHaveText(/Transporte.*R\$\s*800,00.*100%/)
+  await page.setViewportSize({ width: 1000, height: 800 })
+  const incomeCard = await committed.boundingBox()
+  const balanceCard = await metrics.getByRole('article', { name: 'Saldo do mês', exact: true }).boundingBox()
+  expect(incomeCard.y).toBe(balanceCard.y)
+  expect(incomeCard.x).toBeLessThan(balanceCard.x)
+
+  await page.getByLabel('Mês de referência').fill(followingMonth(month))
+  await expect(committed.getByText(`Renda do mês ${formatMoney(salary.amount_cents, 'BRL')}`)).toBeVisible()
+  await expect(plan.getByText('Tetos do mês R$ 0,00')).toBeVisible()
+  await expect(donut.getByText('Nenhuma despesa registrada neste mês.')).toBeVisible()
+})
+
+test('mantém a marca de 100% da renda quando teto e despesas ultrapassam esse valor', async ({ page }) => {
+  const month = addMonthsToDate(localDate(), 20).slice(0, 7)
+  const categories = await (await page.request.get('/api/classifications')).json()
+  const { amount_cents: income } = await (await page.request.get(`/api/salary?month=${month}`)).json()
+  const supermarket = categories.find(item => item.name === 'Supermercado')
+  const health = categories.find(item => item.name === 'Consultas')
+  const budget = await page.request.put(`/api/budgets/${supermarket.id}?month=${month}`, {
+    data: { limit_cents: Math.floor(income * 1.6) },
+  })
+  expect(budget.ok()).toBe(true)
+  const healthSpend = Math.floor(income / 3)
+  for (const [category, amount_cents] of [[supermarket, income], [health, healthSpend]]) {
+    const result = await page.request.post('/api/expenses', { data: {
+      occurred_on: `${month}-10`, amount_cents, category_id: category.id, department_id: category.parent_id,
+    } })
+    expect(result.ok()).toBe(true)
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+  await page.getByLabel('Mês de referência').fill(month)
+
+  const gauge = page.getByRole('region', { name: 'Medidor do orçamento' })
+  const dial = gauge.getByRole('meter')
+  await expect(gauge.getByText('175%', { exact: true })).toBeVisible()
+  await expect(gauge.getByText('100%', { exact: true })).toBeVisible()
+  await expect(dial).toHaveAttribute('aria-valuenow', String(income + healthSpend))
+  const incomePosition = await dial.locator('.dial-income-point').evaluate(point => parseFloat(point.style.left))
+  const budgetPosition = await dial.locator('.dial-tick').evaluate(point => parseFloat(point.style.left))
+  expect(incomePosition).toBeLessThan(budgetPosition)
+
+  const donut = page.getByRole('region', { name: 'Gastos por departamento' })
+  const entries = donut.getByRole('listitem')
+  await expect(entries.filter({ hasText: 'Alimentação' })).toContainText('75%')
+  await expect(entries.filter({ hasText: 'Saúde' })).toContainText('25%')
+  await expect(entries.filter({ hasText: 'Saúde' })).toContainText(formatMoney(healthSpend, 'BRL'))
+  const colors = await entries.locator('.donut-key').evaluateAll(keys => keys.map(key => getComputedStyle(key).backgroundColor))
+  expect(new Set(colors).size).toBe(2)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+})
+
+test('cadastra crédito fixo com prazo e tag pela Visão geral', async ({ page }) => {
+  const startMonth = addMonthsToDate(localDate(), 24).slice(0, 7)
+  const endMonth = followingMonth(startMonth)
+  const { amount_cents: salary } = await (await page.request.get(`/api/salary?month=${startMonth}`)).json()
+  const tag = await page.request.post('/api/tags', { data: { name: 'Projeto de teste' } })
+  expect(tag.ok()).toBe(true)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Novo crédito', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByLabel('Valor do crédito').fill('113,75')
+  await dialog.getByRole('combobox', { name: 'Tipo do crédito' }).selectOption('fixo')
+  await dialog.getByRole('combobox', { name: 'Início', exact: true }).selectOption('specific')
+  await dialog.getByLabel('Data de início').fill(`${startMonth}-20`)
+  await dialog.getByRole('combobox', { name: 'Prazo', exact: true }).selectOption('timed')
+  await dialog.getByLabel('Data de término').fill(`${endMonth}-10`)
+  await dialog.getByLabel('Descrição (opcional)').fill('Projeto temporário')
+  await dialog.getByRole('checkbox', { name: 'Projeto de teste' }).check()
+  await dialog.getByRole('button', { name: 'Salvar crédito' }).click()
+
+  const picker = page.getByLabel('Mês de referência')
+  await expect(picker).toHaveValue(startMonth)
+  const income = page.getByRole('article', { name: 'Renda comprometida' })
+  await expect(income.getByText(formatMoney(salary + 11_375, 'BRL'))).toBeVisible()
+  await picker.fill(endMonth)
+  await expect(income.getByText(formatMoney(salary + 11_375, 'BRL'))).toBeVisible()
+  await page.getByRole('link', { name: 'Configurações', exact: true }).click()
+  const credits = page.getByRole('region', { name: 'Créditos', exact: true })
+  await expect(credits.getByText('Projeto temporário')).toBeVisible()
+  await expect(credits.getByText('Projeto de teste')).toBeVisible()
+  await page.getByRole('link', { name: 'Visão geral', exact: true }).click()
+  await picker.fill(followingMonth(endMonth))
+  await expect(income.getByText(formatMoney(salary, 'BRL'))).toBeVisible()
+})
