@@ -27,7 +27,7 @@ def test_migration_and_seed(tmp_path):
         migrate(engine)
         with engine.connect() as connection:
             assert compare_metadata(MigrationContext.configure(connection), Base.metadata) == []
-            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0008"
+            assert connection.scalar(sa.text("SELECT version_num FROM alembic_version")) == "0009"
             assert connection.scalar(sa.text("SELECT count(*) FROM classifications")) == 56
     finally:
         engine.dispose()

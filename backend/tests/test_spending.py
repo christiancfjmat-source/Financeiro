@@ -5,9 +5,11 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 import pytest
+from sqlalchemy import func, select
 
 from backend.app.db import ROOT, engine_for
 from backend.app.main import create_app
+from backend.app.models import Expense, PurchaseInstallment
 from backend.app import spending_api
 
 
@@ -196,6 +198,71 @@ def test_fixed_expense_payment_changes_preserve_earlier_months(client, monkeypat
     current, = client.get("/api/expenses?month=2026-11").json()
     assert past["payment_method"]["id"] == card["id"] and past["payment_due_on"] == "2026-11-06"
     assert current["payment_method"]["id"] == pix["id"] and current["payment_due_on"] is None
+
+
+def test_purchase_installments_split_cents_and_use_payment_day(client):
+    pix = next(method for method in client.get("/api/payment-methods").json() if method["kind"] == "pix")
+    payload = expense_payload(client, occurred_on="2026-01-31", payment_method_id=pix["id"],
+                              amount_cents=10_000, installment_count=3)
+    for changes in ({"installment_count": 0}, {"installment_count": 1.5}, {"installment_count": 10_001},
+                    {"kind": "fixa"}, {"credit_kind": "financiamento", "credit_mode": "unica"}):
+        assert client.post("/api/expenses", json={**payload, **changes}).status_code == 422
+    result = client.post("/api/expenses", json=payload)
+    assert result.status_code == 201, result.text
+    expense_id = result.json()["id"]
+
+    for number, (date, amount) in enumerate([
+        ("2026-01-31", 3334), ("2026-02-28", 3333), ("2026-03-31", 3333),
+    ], start=1):
+        month = date[:7]
+        expense, = client.get(f"/api/expenses?month={month}").json()
+        assert expense["id"] == expense_id and expense["amount_cents"] == amount and expense["occurred_on"] == date
+        assert expense["purchase_installment"] == {"number": number, "total": 3, "purchase_on": "2026-01-31",
+                                                   "total_cents": 10_000, "due_on": date}
+        summary = client.get(f"/api/spending?month={month}").json()
+        assert summary["total_cents"] == amount and summary["expense_count"] == 1
+
+    with client.app.state.engine.connect() as connection:
+        assert connection.scalar(select(func.count(Expense.id))) == 1
+        assert connection.scalar(select(func.count(PurchaseInstallment.expense_id))) == 3
+
+    path = f"/api/expenses/{expense_id}"
+    assert client.put(path, json={**payload, "installment_count": 2, "amount_cents": 8_001}).status_code == 200
+    assert client.get("/api/spending?month=2026-01").json()["total_cents"] == 4_001
+    assert client.get("/api/spending?month=2026-02").json()["total_cents"] == 4_000
+    assert client.get("/api/expenses?month=2026-03").json() == []
+    assert client.delete(path).status_code == 204
+    assert client.get("/api/expenses?month=2026-02").json() == []
+    with client.app.state.engine.connect() as connection:
+        assert connection.scalar(select(func.count(PurchaseInstallment.expense_id))) == 0
+
+
+def test_card_purchase_starts_at_due_date_and_keeps_card_day(client):
+    card = client.post("/api/payment-methods", json={"name": "Cartão", "kind": "credito", "due_day": 30}).json()
+    payload = expense_payload(client, occurred_on="2026-01-31", payment_method_id=card["id"],
+                              amount_cents=31_001, installment_count=3)
+    first = client.post("/api/expenses", json=payload)
+    assert first.status_code == 201, first.text
+    assert first.json()["payment_due_on"] == "2026-02-28"
+    assert client.get("/api/spending?month=2026-01").json()["total_cents"] == 0
+    march, = client.get("/api/expenses?month=2026-03").json()
+    assert march["payment_due_on"] == "2026-03-30"
+    assert march["amount_cents"] == 10_334
+    budget_path = f"/api/budgets/{payload['category_id']}?month=2026-03"
+    assert client.put(budget_path, json={"limit_cents": 15_000}).status_code == 200
+    assert client.get("/api/spending?month=2026-03").json()["budgets"][0]["available_cents"] == 4_666
+
+    single = client.post("/api/expenses", json={**payload, "occurred_on": "2026-09-02", "installment_count": 1})
+    assert single.status_code == 201
+    assert single.json()["occurred_on"] == "2026-09-30"
+    assert single.json()["amount_cents"] == payload["amount_cents"]
+    path = f"/api/expenses/{first.json()['id']}"
+    base_fields = {key: value for key, value in payload.items() if key != "installment_count"}
+    assert client.put(path, json={**base_fields, "description": "Compra corrigida"}).status_code == 200
+    assert client.get("/api/expenses?month=2026-04").json()[0]["purchase_installment"]["number"] == 3
+    assert client.put(path, json={**base_fields, "installment_count": None}).status_code == 200
+    assert client.get("/api/expenses?month=2026-04").json() == []
+    assert client.get("/api/expenses?month=2026-01").json()[0]["amount_cents"] == 31_001
 
 
 def test_fixed_term_includes_start_and_end_months_without_double_counting(client, monkeypatch):

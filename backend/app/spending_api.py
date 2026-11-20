@@ -7,11 +7,12 @@ from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from .api import Db, MonthQuery, find, local_date, month_start, normalize_name, resolve_tags, save
 from .installments import create_installments, installment_details
-from .models import Classification, Expense, InstallmentAdvance, MonthlyBudget, Settings, Tag
+from .models import Classification, Expense, InstallmentAdvance, MonthlyBudget, PurchaseInstallment, Settings, Tag
 from .payment_methods import card_due_on, resolve_payment
+from .purchase_installments import set_purchase_installments
 from .recurrence import expense_in_month, is_current_version, last_day, occurrence_date, projection_end
 from .schemas import (AdvanceDetails, BudgetInput, BudgetProgress, CloseRecurrence, ExpenseInput,
-                      ExpenseOutput, PaymentMethodOutput, TagInput, TagOutput)
+                      ExpenseOutput, PaymentMethodOutput, PurchaseInstallmentDetails, TagInput, TagOutput)
 
 router = APIRouter(prefix="/api")
 
@@ -21,18 +22,32 @@ def expense_horizon(db: Db, today: date):
 
 
 def expense_ledger(query, reference: date, horizon: date):
-    return query.outerjoin(InstallmentAdvance, Expense.id == InstallmentAdvance.expense_id).where(or_(
-        and_(InstallmentAdvance.expense_id.is_(None), expense_in_month(reference, horizon)),
-        InstallmentAdvance.paid_on.between(reference, last_day(reference)),
+    end = last_day(reference)
+    return query.outerjoin(InstallmentAdvance, Expense.id == InstallmentAdvance.expense_id).outerjoin(
+        PurchaseInstallment, and_(Expense.id == PurchaseInstallment.expense_id,
+                                  PurchaseInstallment.due_on.between(reference, end)),
+    ).where(or_(
+        and_(InstallmentAdvance.expense_id.is_(None), Expense.installment_count.is_(None),
+             expense_in_month(reference, horizon)),
+        InstallmentAdvance.paid_on.between(reference, end),
+        PurchaseInstallment.expense_id.is_not(None),
     ))
 
 
-def expense_result(expense: Expense, reference: date, today: date):
+def expense_result(expense: Expense, reference: date, today: date, purchase: PurchaseInstallment | None = None):
     current = today.replace(day=1)
     fixed = expense.kind == "fixa"
     agreement = expense.agreement
     advance = expense.advance
     occurred_on = advance.paid_on if advance else occurrence_date(expense, reference)
+    amount_cents = advance.paid_cents if advance else expense.amount_cents
+    purchase_details = None
+    if purchase is not None:
+        occurred_on, amount_cents = purchase.due_on, purchase.amount_cents
+        purchase_details = PurchaseInstallmentDetails(
+            number=purchase.number, total=expense.installment_count, purchase_on=expense.occurred_on,
+            total_cents=expense.amount_cents, due_on=purchase.due_on,
+        )
     method = expense.payment_method
     editable = advance is None and (not fixed or (reference >= current and is_current_version(expense, current)))
     return ExpenseOutput(
@@ -46,8 +61,9 @@ def expense_result(expense: Expense, reference: date, today: date):
         starts_on=agreement.starts_on if agreement else expense.occurred_on if fixed else None,
         ends_on=agreement.ends_on if agreement else expense.ends_on, closed_on=expense.closed_on,
         installment=installment_details(expense) if agreement else None,
+        purchase_installment=purchase_details,
         advance=AdvanceDetails(paid_on=advance.paid_on, paid_cents=advance.paid_cents) if advance else None,
-        description=expense.description, amount_cents=advance.paid_cents if advance else expense.amount_cents,
+        description=expense.description, amount_cents=amount_cents,
         department_id=expense.department_id, category_id=expense.category_id, subcategory_id=expense.subcategory_id,
         tags=[TagOutput(id=tag.id, name=tag.name) for tag in expense.tags],
         can_edit=editable,
@@ -89,10 +105,10 @@ def delete_tag(tag_id: int, db: Db):
 def list_expenses(db: Db, month: MonthQuery = None):
     today = local_date()
     reference = month_start(month) if month else today.replace(day=1)
-    query = expense_ledger(select(Expense), reference, expense_horizon(db, today)).options(
+    query = expense_ledger(select(Expense, PurchaseInstallment), reference, expense_horizon(db, today)).options(
         selectinload(Expense.tags), joinedload(Expense.agreement), joinedload(Expense.payment_method), contains_eager(Expense.advance),
     )
-    results = (expense_result(expense, reference, today) for expense in db.scalars(query))
+    results = (expense_result(expense, reference, today, purchase) for expense, purchase in db.execute(query))
     return sorted(results, key=lambda item: (item.occurred_on, item.id), reverse=True)
 
 
@@ -112,7 +128,7 @@ def apply_expense(db: Db, expense: Expense, data: ExpenseInput, previous: Expens
                 raise HTTPException(422, "Selecione uma subcategoria ativa da categoria informada.")
     tags = resolve_tags(db, data.tag_ids)
     method, due_day = resolve_payment(db, data, source)
-    for key, value in data.model_dump(exclude={"tag_ids", "credit_mode", "payment_method_id"}).items():
+    for key, value in data.model_dump(exclude={"tag_ids", "credit_mode", "payment_method_id", "installment_count"}).items():
         setattr(expense, key, value)
     expense.payment_method = method
     expense.payment_due_day = due_day
@@ -129,14 +145,16 @@ def add_expense(data: ExpenseInput, db: Db):
         if data.occurred_on > expense_horizon(db, today):
             raise HTTPException(422, "Escolha um início dentro do horizonte de projeção.")
         expense.effective_from = reference
+    purchase = None
     if data.creates_installments:
         installments = create_installments(expense, data.credit_kind)
         db.add_all(installments)
         expense = installments[0]
     else:
+        purchase = set_purchase_installments(expense, data.installment_count)
         db.add(expense)
     save(db, "Não foi possível salvar a despesa. Confira a categoria e as tags.")
-    return expense_result(expense, reference, today)
+    return expense_result(expense, reference, today, purchase)
 
 
 @router.put("/expenses/{expense_id}", response_model=ExpenseOutput)
@@ -144,6 +162,7 @@ def edit_expense(expense_id: int, data: ExpenseInput, db: Db):
     today = local_date()
     current = today.replace(day=1)
     expense = find(db, Expense, expense_id)
+    count = data.installment_count if "installment_count" in data.model_fields_set else expense.installment_count
     reference = data.occurred_on.replace(day=1)
     if expense.advance is not None:
         raise HTTPException(409, "Esta parcela já foi antecipada. O pagamento e o vencimento original estão no histórico.")
@@ -171,7 +190,7 @@ def edit_expense(expense_id: int, data: ExpenseInput, db: Db):
         if expense.effective_from < current:
             payment_changed = data.payment_method_id is not None and data.payment_method_id != expense.payment_method_id
             changed = any(getattr(expense, field) != value for field, value
-                          in data.model_dump(exclude={"tag_ids", "credit_mode", "payment_method_id"}).items())
+                          in data.model_dump(exclude={"tag_ids", "credit_mode", "payment_method_id", "installment_count"}).items())
             if not changed and not payment_changed and {tag.id for tag in expense.tags} == set(data.tag_ids):
                 return expense_result(expense, current, today)
             version = Expense(effective_from=current)
@@ -187,8 +206,9 @@ def edit_expense(expense_id: int, data: ExpenseInput, db: Db):
         apply_expense(db, expense, data)
         if data.kind == "fixa":
             expense.effective_from = reference
+    purchase = set_purchase_installments(expense, count)
     save(db, "Não foi possível salvar a despesa. Confira a categoria e as tags.")
-    return expense_result(expense, reference, today)
+    return expense_result(expense, reference, today, purchase)
 
 
 @router.post("/expenses/{expense_id}/close", status_code=204)
@@ -247,7 +267,7 @@ def read_spending(db: Db, month: MonthQuery = None):
     categories: dict[int, int] = defaultdict(int)
     departments: dict[int, int] = defaultdict(int)
     count = 0
-    amount = func.coalesce(InstallmentAdvance.paid_cents, Expense.amount_cents)
+    amount = func.coalesce(InstallmentAdvance.paid_cents, PurchaseInstallment.amount_cents, Expense.amount_cents)
     grouped = expense_ledger(select(Expense.department_id, Expense.category_id, func.sum(amount), func.count()),
                              reference, expense_horizon(db, today)).group_by(Expense.department_id, Expense.category_id)
     for department, category, subtotal, quantity in db.execute(grouped):

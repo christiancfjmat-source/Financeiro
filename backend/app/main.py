@@ -25,7 +25,7 @@ def create_app(path: Path | None = None):
         finally:
             engine.dispose()
 
-    app = FastAPI(title="Moradia | Gestão Financeira", version="0.4.4", lifespan=lifespan,
+    app = FastAPI(title="Moradia | Gestão Financeira", version="0.4.5", lifespan=lifespan,
                   docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 

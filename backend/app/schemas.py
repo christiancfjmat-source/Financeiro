@@ -152,6 +152,7 @@ class ExpenseInput(Input):
     credit_mode: CreditMode | None = None
     payment_method_id: RecordId | None = None
     amount_cents: PositiveMoney
+    installment_count: Annotated[int, Field(strict=True, ge=1)] | None = None
     description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
     department_id: RecordId
     category_id: RecordId
@@ -160,6 +161,8 @@ class ExpenseInput(Input):
 
     @model_validator(mode="after")
     def check_expense_term(self):
+        if self.installment_count is not None and (self.kind != "avulsa" or self.credit_kind is not None):
+            raise ValueError("Use o número de parcelas em uma despesa comum avulsa.")
         if self.credit_mode and not self.credit_kind:
             raise ValueError("Selecione financiamento ou empréstimo antes de informar como cadastrar.")
         if self.creates_installments and (self.kind != "fixa" or self.ends_on is None):
@@ -188,6 +191,14 @@ class InstallmentDetails(BaseModel):
     total: int
     scheduled_on: date
     scheduled_cents: int
+
+
+class PurchaseInstallmentDetails(BaseModel):
+    number: int
+    total: int
+    purchase_on: date
+    total_cents: int
+    due_on: date
 
 
 class AdvanceDetails(BaseModel):
@@ -236,6 +247,7 @@ class ExpenseOutput(BaseModel):
     ends_on: date | None = None
     closed_on: date | None = None
     installment: InstallmentDetails | None = None
+    purchase_installment: PurchaseInstallmentDetails | None = None
     advance: AdvanceDetails | None = None
     can_edit: bool
     can_delete: bool

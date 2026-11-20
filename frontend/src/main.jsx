@@ -88,9 +88,16 @@ function App() {
   function expenseSaved(expense, message) {
     setExpenseDialog(null)
     if (!expenseDialog?.close && !expenseDialog?.remove) {
-      const start = (expense.starts_on || expense.occurred_on).slice(0, 7)
-      const end = (expense.ends_on && expense.ends_on < horizon ? expense.ends_on : horizon).slice(0, 7)
-      if (expense.kind === 'avulsa' || month < start || month > end) setMonth(start)
+      const purchase = expense.purchase_installment
+      if (purchase) {
+        const first = purchase.due_on.slice(0, 7)
+        const last = addMonthsToDate(purchase.due_on, purchase.total - 1).slice(0, 7)
+        if (!expenseDialog?.expense || month < first || month > last) setMonth(first)
+      } else {
+        const start = (expense.starts_on || expense.occurred_on).slice(0, 7)
+        const end = (expense.ends_on && expense.ends_on < horizon ? expense.ends_on : horizon).slice(0, 7)
+        if (expense.kind === 'avulsa' || month < start || month > end) setMonth(start)
+      }
     }
     setExpenseVersion(value => value + 1)
     setNotice(message)

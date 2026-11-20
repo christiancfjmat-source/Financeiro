@@ -1,0 +1,46 @@
+import { expect, test } from '@playwright/test'
+import { addMonthsToDate, dateLabel, followingMonth, localDate } from '../../src/finance.js'
+
+test('divide o valor total da compra a partir do vencimento do cartão', async ({ page }) => {
+  const selected = addMonthsToDate(localDate(), 27).slice(0, 7)
+  const first = followingMonth(selected)
+  const second = followingMonth(first)
+  const third = followingMonth(second)
+  const purchase = `${selected}-20`
+  const card = await page.request.post('/api/payment-methods', { data: { name: 'Cartão parcelas', kind: 'credito', due_day: 10 } })
+  expect(card.ok()).toBe(true)
+
+  await page.goto('/#despesas')
+  await page.getByRole('button', { name: 'Nova despesa', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('combobox', { name: 'Forma de pagamento' }).selectOption({ label: 'Cartão parcelas' })
+  await dialog.getByLabel('Data da compra').fill(purchase)
+  await dialog.getByLabel('Número de parcelas').fill('3')
+  await dialog.getByLabel('Valor total da despesa').fill('100,00')
+  await dialog.getByRole('combobox', { name: 'Categoria', exact: true }).selectOption({ label: 'Eletrônicos' })
+  await dialog.getByLabel('Descrição (opcional)').fill('Compra a prazo')
+  await expect(dialog.getByText(`Primeira parcela em ${dateLabel(`${first}-10`)}.`)).toBeVisible()
+  await dialog.getByRole('button', { name: 'Salvar despesa' }).click()
+
+  const picker = page.getByLabel('Mês de referência')
+  const row = page.getByRole('list', { name: 'Lançamentos do mês' }).getByRole('listitem').filter({ hasText: 'Compra a prazo' })
+  await expect(picker).toHaveValue(first)
+  await expect(row).toContainText('Parcela 1/3')
+  await expect(row.getByText('R$ 33,34', { exact: true })).toBeVisible()
+  await picker.fill(selected)
+  await expect(row).toHaveCount(0)
+  await picker.fill(second)
+  await expect(row).toContainText('Parcela 2/3')
+  await expect(row.getByText('R$ 33,33', { exact: true })).toBeVisible()
+
+  await row.getByRole('button', { name: 'Editar despesa: Compra a prazo' }).click()
+  await expect(dialog.getByLabel('Valor total da despesa')).toHaveValue('100,00')
+  await expect(dialog.getByLabel('Data da compra')).toHaveValue(purchase)
+  await dialog.getByLabel('Número de parcelas').fill('2')
+  await dialog.getByRole('button', { name: 'Salvar despesa' }).click()
+  await expect(picker).toHaveValue(second)
+  await expect(row).toContainText('Parcela 2/2')
+  await expect(row.getByText('R$ 50,00', { exact: true })).toBeVisible()
+  await picker.fill(third)
+  await expect(page.getByText('Nenhuma despesa em', { exact: false })).toBeVisible()
+})

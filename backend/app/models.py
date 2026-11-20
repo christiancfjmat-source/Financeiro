@@ -143,6 +143,18 @@ class PaymentMethod(Base):
     due_day: Mapped[int | None]
 
 
+class PurchaseInstallment(Base):
+    __tablename__ = "purchase_installments"
+    __table_args__ = (
+        CheckConstraint("number > 0 AND amount_cents > 0", name="purchase_installment_positive"),
+    )
+
+    expense_id: Mapped[int] = mapped_column(ForeignKey("expenses.id", ondelete="CASCADE"), primary_key=True)
+    number: Mapped[int] = mapped_column(primary_key=True)
+    due_on: Mapped[date] = mapped_column(index=True)
+    amount_cents: Mapped[int] = mapped_column(BigInteger)
+
+
 class Expense(Base):
     __tablename__ = "expenses"
     __table_args__ = (
@@ -175,6 +187,8 @@ class Expense(Base):
         "payment_method_id IS NOT NULL AND (payment_due_day IS NULL OR payment_due_day BETWEEN 1 AND 31)",
         name="expense_payment_terms",
     ))
+    installment_count: Mapped[int | None] = mapped_column(CheckConstraint(
+        "installment_count > 0", name="expense_installment_count_positive"))
     description: Mapped[str] = mapped_column(String(500))
     amount_cents: Mapped[int] = mapped_column(BigInteger)
     department_id: Mapped[int] = mapped_column(ForeignKey("classifications.id", ondelete="RESTRICT"), index=True)
@@ -184,6 +198,9 @@ class Expense(Base):
     agreement: Mapped[CreditAgreement | None] = relationship()
     advance: Mapped[InstallmentAdvance | None] = relationship()
     payment_method: Mapped[PaymentMethod] = relationship()
+    purchase_installments: Mapped[list[PurchaseInstallment]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True, order_by=PurchaseInstallment.number,
+    )
 
 
 class MonthlyBudget(Base):
