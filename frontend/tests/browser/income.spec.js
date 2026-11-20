@@ -31,9 +31,13 @@ test('usa o crédito eventual do mês nos indicadores de renda e saldo', async (
   await page.getByRole('link', { name: 'Visão geral', exact: true }).click()
   const metrics = page.getByRole('region', { name: 'Indicadores financeiros' })
   await expect(metrics.getByRole('heading')).toHaveText([
-    'Despesas do mês', 'Renda comprometida', 'Saldo do mês', 'Teto utilizado',
+    'Renda total do mês', 'Despesas do mês', 'Teto total do mês', 'Teto utilizado', 'Renda comprometida', 'Saldo do mês',
   ])
   const income = salary.amount_cents + 120_000
+  const totalIncome = metrics.getByRole('article', { name: 'Renda total do mês' })
+  const totalBudget = metrics.getByRole('article', { name: 'Teto total do mês' })
+  await expect(totalIncome.getByText(formatMoney(income, 'BRL'), { exact: true })).toBeVisible()
+  await expect(totalBudget.getByText('R$ 2.600,00', { exact: true })).toBeVisible()
   const committed = metrics.getByRole('article', { name: 'Renda comprometida' })
   const percentage = new Intl.NumberFormat('pt-BR', { style: 'percent', maximumFractionDigits: 1 }).format(80_000 / income)
   await expect(committed.getByText(percentage, { exact: true })).toBeVisible()
@@ -60,6 +64,7 @@ test('usa o crédito eventual do mês nos indicadores de renda e saldo', async (
   expect(incomeCard.x).toBeLessThan(balanceCard.x)
 
   await page.getByLabel('Mês de referência').fill(followingMonth(month))
+  await expect(totalIncome.getByText(formatMoney(salary.amount_cents, 'BRL'), { exact: true })).toBeVisible()
   await expect(committed.getByText(`Renda do mês ${formatMoney(salary.amount_cents, 'BRL')}`)).toBeVisible()
   await expect(plan.getByText('0%', { exact: true })).toBeVisible()
   await expect(plan.getByText('Teto total R$ 2.600,00')).toBeVisible()

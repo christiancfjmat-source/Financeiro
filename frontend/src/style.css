@@ -272,32 +272,40 @@ select { padding: 0 9px; }
 .heading-actions { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: 9px; }
 .overview-heading { flex-wrap: wrap; }
 .overview-heading .heading-actions { max-width: 100%; }
-.metrics-spending { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metrics-spending { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .metric strong { overflow-wrap: anywhere; }
 .category-spending, .budget-departments, .budget-categories, .expense-list, .tag-register { list-style: none; padding: 0; margin: 0; }
 .category-spending > li + li { border-top: 1px solid var(--border); }
-.category-spending-button {
-  display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(2, minmax(0, .8fr)) minmax(0, 1.1fr) auto;
-  align-items: center; gap: 7px 9px; width: 100%; padding: 9px 6px; border-radius: 7px;
+.category-spending-row {
+  display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(2, minmax(0, .8fr)) auto;
+  align-items: center; gap: 7px 9px; padding: 9px 6px;
   text-align: left; font-size: .86rem; overflow-wrap: anywhere;
 }
-.category-spending-button:hover, .category-spending-button[aria-expanded="true"] { background: var(--soft); }
-.category-spending-button small { display: block; color: var(--muted); font-size: .75rem; }
-.category-spending-button strong { font-weight: 650; }
-.category-spending-button .bar-track { grid-column: 1 / -1; height: 5px; }
-.category-spending-chevron { color: var(--accent); }
-.category-spending-button[aria-expanded="true"] .category-spending-chevron { transform: rotate(90deg); }
+.category-spending-row small { display: block; color: var(--muted); font-size: .75rem; }
+.category-spending-row strong { font-weight: 650; }
+.category-spending-row .bar-track { grid-column: 1 / -1; height: 5px; }
+.category-spending-actions { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.category-detail-button.button { min-height: 29px; padding: 4px 7px; font-size: .75rem; }
 .chart-cap {
-  display: flex; align-items: center; gap: 5px; padding: 4px 6px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 6px; border-radius: 6px;
   background: var(--soft); color: var(--muted); font-size: .76rem;
 }
+.category-spending-actions .chart-cap { gap: 4px; padding: 3px 5px; }
 .chart-cap svg { flex: none; }
-.chart-cap small { color: inherit; }
+.chart-cap small { display: block; color: inherit; }
 .chart-cap.cap-ok { background: var(--green); color: var(--accent); }
 .chart-cap.cap-over { background: var(--rose); }
 .chart-cap.cap-over, .negative-value { color: #a83246; }
 [data-theme="dark"] :is(.chart-cap.cap-over, .negative-value) { color: #f5909e; }
-.category-expense-detail { margin: 3px 0 8px 6px; padding-inline-start: 10px; border-inline-start: 2px solid var(--border); }
+.category-detail-period { font-size: .86rem; color: var(--muted); }
+.category-detail-summary {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)) auto; gap: 9px;
+  align-items: start; padding: 10px; margin-block: 10px; border: 1px solid var(--border); border-radius: 8px;
+}
+.category-detail-summary dt, .category-expense-detail small { display: block; color: var(--muted); font-size: .76rem; }
+.category-detail-summary dd { font-weight: 650; overflow-wrap: anywhere; }
+.category-detail-summary .chart-cap small { font-weight: 400; }
+.category-expense-detail { margin: 0; padding: 0; list-style: none; }
 .category-expense-detail li {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px;
   padding: 7px 2px; font-size: .82rem; overflow-wrap: anywhere;
@@ -516,18 +524,18 @@ select { padding: 0 9px; }
 .filter-options-list input { flex: none; accent-color: var(--accent); }
 .filter-options-list small { display: block; color: var(--muted); }
 
-@media (max-width: 1150px) {
+@media (max-width: 1050px) {
   .metrics-spending { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .metrics-spending > :first-child, .metrics-spending > :last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 560px), (min-width: 881px) and (max-width: 1080px) {
+  .category-spending-row { grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 1fr)); }
+  .category-spending-actions { grid-column: 1 / -1; }
 }
 @media (min-width: 551px) and (max-width: 880px) {
   .expense-filters .search { flex-basis: 100%; }
 }
 @media (max-width: 550px) {
   .heading-actions { max-width: 100%; }
-  .category-spending-button { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .category-spending-name { grid-column: 1 / 3; }
-  .category-spending-chevron { grid-column: 3; grid-row: 1; justify-self: end; }
   .category-expense-detail li { grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; }
   .category-expense-detail time { grid-column: 1 / -1; }
   .tree-budget { padding-left: 58px; }

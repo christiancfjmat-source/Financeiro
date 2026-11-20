@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { Wallet, ShieldCheck, ChevronRight, House, Utensils, CarFront, HeartPulse, ShoppingBag, Sparkles, Handshake, Shapes, Plus, ReceiptText, Percent, Banknote, CircleAlert, CircleCheck, Minus } from 'lucide-react'
-import { CalendarMonthPicker, ErrorNotice } from './components'
+import { useRef, useState } from 'react'
+import { Wallet, ShieldCheck, ChevronRight, House, Utensils, CarFront, HeartPulse, ShoppingBag, Sparkles, Handshake, Shapes, Plus, ReceiptText, Percent, Banknote, CircleAlert, CircleCheck, Minus, Target } from 'lucide-react'
+import { CalendarMonthPicker, ErrorNotice, Modal } from './components'
 import { BudgetUsage } from './budgets'
-import { dateLabel, formatMoney } from './finance'
+import { dateLabel, formatMoney, monthLabel } from './finance'
 import { useMonthData } from './month-data'
 import { BudgetGauge, DepartmentDonut } from './overview-charts'
 import { CreditForm } from './income'
@@ -42,14 +42,18 @@ export function Overview({ settings, classifications, revisions, tags, month, se
     {incomeError && <div className="report-error"><ErrorNotice message={incomeError} />
       <button className="button secondary compact" onClick={reloadIncome}>Recarregar renda</button></div>}
     <section className="metrics metrics-spending" aria-label="Indicadores financeiros">
+      <Metric Icon={Banknote} tone="green" title="Renda total do mês" value={money(income?.total_cents)}
+        detail="Salário vigente e créditos do mês" />
       <Metric Icon={ReceiptText} tone="rose" title="Despesas do mês" value={money(report?.total_cents)}
         detail={report ? `${report.expense_count} ${report.expense_count === 1 ? 'lançamento' : 'lançamentos'}` : 'Total da competência'} />
+      <Metric Icon={Target} tone="purple" title="Teto total do mês" value={money(budgetTotal)}
+        detail="Soma dos tetos das categorias" />
+      <Metric Icon={ShieldCheck} tone={overBudget ? 'rose' : 'purple'} title="Teto utilizado" value={budgetShare}
+        detail={`Teto total ${money(budgetTotal)}`} negative={overBudget} />
       <Metric Icon={Percent} tone="orange" title="Renda comprometida" value={share}
         detail={`Renda do mês ${money(income?.total_cents)}`} />
       <Metric Icon={Wallet} tone={balance < 0 ? 'rose' : 'green'} title="Saldo do mês" value={money(balance)}
         detail="Renda do mês menos despesas" negative={balance < 0} />
-      <Metric Icon={ShieldCheck} tone={overBudget ? 'rose' : 'purple'} title="Teto utilizado" value={budgetShare}
-        detail={`Teto total ${money(budgetTotal)}`} negative={overBudget} />
     </section>
     {reportError && <div className="report-error"><ErrorNotice message={reportError} />
       <button className="button secondary compact" onClick={reload}>Tentar novamente</button></div>}
@@ -62,7 +66,7 @@ export function Overview({ settings, classifications, revisions, tags, month, se
     <div className="overview-grid">
       <CategorySpending report={report} names={names} money={money} error={reportError}
         departmentId={departmentId} categoryId={categoryId} month={month} version={expenseVersion}
-        onSelect={id => setSelection({ month, departmentId, categoryId: categoryId === id ? null : id })} />
+        onSelect={id => setSelection({ month, departmentId, categoryId: id })} />
       <DepartmentBudgets report={report} error={reportError} classifications={classifications} settings={settings} money={money} />
     </div>
     {creditOpen && <CreditForm month={month} horizon={horizon} tags={tags} currency={settings.currency}
@@ -129,12 +133,20 @@ function DepartmentBudgets({ report, error, classifications, settings, money }) 
 }
 
 function CategorySpending({ report, names, money, error, departmentId, categoryId, month, version, onSelect }) {
+  const detailTrigger = useRef(null)
   const breakdown = report?.categories_by_department
   const amounts = departmentId == null ? report?.by_category : report && (breakdown?.[departmentId] ?? {})
   const departments = Object.entries(breakdown ?? {})
   const entries = Object.entries(amounts || {}).sort((a, b) => b[1] - a[1])
   const largest = entries[0]?.[1]
   const caps = new Map(report?.budgets.map(budget => [budget.category_id, budget.limit_cents]))
+  const selectedSpend = categoryId == null ? null : amounts?.[categoryId]
+
+  function closeDetails() {
+    onSelect(null)
+    requestAnimationFrame(() => detailTrigger.current?.focus())
+  }
+
   return <section className="panel distribution" aria-label="Gastos por categoria">
     <div className="panel-heading">
       <div><h2>Gastos por categoria</h2><p>{names.get(departmentId) ?? 'Todos os departamentos'}</p></div>
@@ -148,34 +160,46 @@ function CategorySpending({ report, names, money, error, departmentId, categoryI
         const id = Number(key)
         const name = names.get(id)
         const cap = caps.get(id)
-        const expanded = categoryId === id
         const context = departmentId == null && departments.filter(([, categories]) => id in categories)
           .map(([department]) => names.get(Number(department))).join(' · ')
-        return <li key={id}>
-          <button className="category-spending-button" type="button" aria-expanded={expanded} onClick={() => onSelect(id)}>
-            <span className="category-spending-name"><strong>{name}</strong>{context && <small>{context}</small>}</span>
-            <span><small>Gasto</small><strong>{money(value)}</strong></span>
-            <span><small>Teto</small><strong>{cap == null ? '—' : money(cap)}</strong></span>
-            <CategoryBudgetStatus spent={value} cap={cap} />
-            <ChevronRight className="category-spending-chevron" aria-hidden="true" size={16} />
-            <span className="bar-track" aria-hidden="true"><span className={`bar-fill ${tones[index % tones.length]}`}
-              style={{ width: `${value / largest * 100}%` }} /></span>
-          </button>
-          {expanded && <CategoryExpenses month={month} version={version} categoryId={id} departmentId={departmentId}
-            name={name} names={names} money={money} />}
+        return <li key={id} className="category-spending-row">
+          <span className="category-spending-name"><strong>{name}</strong>{context && <small>{context}</small>}</span>
+          <span><small>Gasto</small><strong>{money(value)}</strong></span>
+          <span><small>Teto</small><strong>{cap == null ? '—' : money(cap)}</strong></span>
+          <div className="category-spending-actions">
+            <CategoryBudgetStatus spent={value} cap={cap} compact />
+            <button className="button secondary category-detail-button" type="button" aria-haspopup="dialog"
+              aria-label={`Detalhar categoria ${name}`} onClick={event => {
+                detailTrigger.current = event.currentTarget
+                onSelect(id)
+              }}>Detalhar categoria</button>
+          </div>
+          <span className="bar-track" aria-hidden="true"><span className={`bar-fill ${tones[index % tones.length]}`}
+            style={{ width: `${value / largest * 100}%` }} /></span>
         </li>
       })}</ul>)}
+    {selectedSpend != null && <Modal title={`Detalhes da categoria · ${names.get(categoryId)}`} onClose={closeDetails}>
+      <p className="category-detail-period">{names.get(departmentId) && `${names.get(departmentId)} · `}{monthLabel(month)}</p>
+      <dl className="category-detail-summary">
+        <div><dt>Gasto no mês</dt><dd>{money(selectedSpend)}</dd></div>
+        <div><dt>Teto da categoria</dt><dd>{caps.has(categoryId) ? money(caps.get(categoryId)) : '—'}</dd></div>
+        <div><dt>Situação</dt><dd><CategoryBudgetStatus spent={selectedSpend} cap={caps.get(categoryId)} /></dd></div>
+      </dl>
+      <CategoryExpenses month={month} version={version} categoryId={categoryId} departmentId={departmentId}
+        name={names.get(categoryId)} names={names} money={money} />
+    </Modal>}
   </section>
 }
 
-function CategoryBudgetStatus({ spent, cap }) {
+function CategoryBudgetStatus({ spent, cap, compact = false }) {
   const over = cap != null && spent > cap
   const Icon = cap == null ? Minus : over ? CircleAlert : CircleCheck
-  return <span className={`chart-cap ${cap == null ? '' : over ? 'cap-over' : 'cap-ok'}`}>
-    <Icon aria-hidden="true" size={16} />
+  const status = cap == null ? 'Sem teto' : over ? 'Ultrapassado' : spent === cap ? 'Teto atingido' : 'Dentro do teto'
+  return <span className={`chart-cap ${cap == null ? '' : over ? 'cap-over' : 'cap-ok'}`} title={compact ? status : undefined}>
+    <Icon aria-hidden="true" size={compact ? 13 : 16} />
     <span>
       {cap > 0 && <strong>{percent.format(spent / cap)} do teto</strong>}
-      <small>{cap == null ? 'Sem teto' : over ? 'Ultrapassado' : spent === cap ? 'Teto atingido' : 'Dentro do teto'}</small>
+      <small className={compact && cap > 0 ? 'sr-only' : undefined}>{status}</small>
     </span>
   </span>
 }
@@ -190,11 +214,20 @@ function CategoryExpenses({ month, version, categoryId, departmentId, name, name
   if (!data.length) return <p className="empty">Nenhuma despesa encontrada para esta categoria.</p>
 
   return <ul className="category-expense-detail" aria-label={`Despesas de ${name}`}>
-    {data.map(expense => <li key={expense.id}>
-      <time dateTime={expense.occurred_on}>{dateLabel(expense.occurred_on)}</time>
-      <span>{expense.description || names.get(expense.subcategory_id) || name}</span>
-      <strong>{money(expense.amount_cents)}</strong>
-    </li>)}
+    {data.map(expense => {
+      const installment = expense.purchase_installment ?? expense.installment
+      return <li key={expense.id}>
+        <time dateTime={expense.occurred_on}>{dateLabel(expense.occurred_on)}</time>
+        <div>
+          <span>{expense.description || names.get(expense.subcategory_id) || name}</span>
+          {installment && <small>
+            Parcela {String(installment.number).padStart(2, '0')}/{String(installment.total).padStart(2, '0')}
+            {expense.advance && ' · Antecipada'}
+          </small>}
+        </div>
+        <strong>{money(expense.amount_cents)}</strong>
+      </li>
+    })}
   </ul>
 }
 
