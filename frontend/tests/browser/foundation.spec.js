@@ -7,6 +7,7 @@ test('navigates, updates preferences and reads a salary revision across the stac
   const income = page.getByRole('article', { name: 'Renda comprometida' })
   await expect(income.getByText(/14\.014,87/)).toBeVisible()
   await expect(page.getByText('Salário líquido previsto', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('article', { name: 'Teto utilizado' }).getByText('—', { exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Gastos por categoria' })).toBeVisible()
   await page.getByRole('link', { name: 'Configurações', exact: true }).click()
   await page.getByLabel('Nome do sistema').fill('Minha Moradia')
@@ -17,7 +18,9 @@ test('navigates, updates preferences and reads a salary revision across the stac
   await page.getByRole('button', { name: 'Ativar tema escuro' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 
-  await page.getByRole('button', { name: 'Agendar reajuste' }).click()
+  await expect(page.getByRole('heading', { name: 'Créditos', exact: true })).toHaveCount(0)
+  const incomeSettings = page.getByRole('region', { name: 'Renda', exact: true })
+  await incomeSettings.getByRole('button', { name: 'Agendar reajuste' }).click()
   const future = followingMonth(localMonth())
   await page.getByLabel('Mês de início').fill(future)
   await page.getByLabel('Novo salário líquido').fill('15.321,05')

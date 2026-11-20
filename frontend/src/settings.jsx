@@ -3,9 +3,8 @@ import { Banknote, Bell, CalendarDays, Landmark, Palette, Pencil, Plus, Save, Tr
 import { api } from './api'
 import { ErrorNotice, Modal, MoneyInput } from './components'
 import { followingMonth, formatMoney, localMonth, monthLabel, parseMoney } from './finance'
-import { IncomeCredits } from './income'
 
-export function Settings({ settings, revisions, referenceMonth, setMonth, horizon, tags, refresh, notify }) {
+export function Settings({ settings, revisions, refresh, notify }) {
   const [currency, setCurrency] = useState(settings.currency)
   const [theme, setTheme] = useState(settings.theme)
   const [busy, setBusy] = useState(false)
@@ -68,7 +67,30 @@ export function Settings({ settings, revisions, referenceMonth, setMonth, horizo
           <label className="field">Dia de recebimento<input type="number" name="payday" min="1" max="31"
             defaultValue={settings.payday ?? ''} placeholder="A definir" /></label>
         </div>
-        <p className="field-note">Use reajustes salariais para agendar um novo valor a partir de um mês futuro.</p>
+        <div className="salary-revisions">
+          <div className="panel-heading">
+            <h3>Reajustes salariais</h3>
+            <button className="button secondary compact" type="button" onClick={() => setModal({})}>
+              <Plus size={17} /> Agendar reajuste
+            </button>
+          </div>
+          {!revisions.length && <p className="field-note">Nenhum reajuste agendado.</p>}
+          {revisions.length > 0 && <ul className="revision-list">
+            {revisions.map(item => {
+              const future = item.effective_month.slice(0, 7) > month
+              return <li key={item.effective_month}>
+                <CalendarDays size={18} /><span>{monthLabel(item.effective_month)}</span>
+                <strong>{formatMoney(item.amount_cents, settings.currency)}</strong>
+                {future && <div className="tree-actions">
+                  <button className="icon-button" type="button" aria-label="Editar reajuste"
+                    onClick={() => setModal({ item })}><Pencil size={17} /></button>
+                  <button className="icon-button danger-icon" type="button" aria-label="Remover reajuste"
+                    onClick={() => setModal({ item, remove: true })}><Trash2 size={17} /></button>
+                </div>}
+              </li>
+            })}
+          </ul>}
+        </div>
       </SettingsCard>
       <SettingsCard Icon={Landmark} title="Saldos iniciais">
         <div className="fields-two">
@@ -88,27 +110,6 @@ export function Settings({ settings, revisions, referenceMonth, setMonth, horizo
         <p className="field-note">O horizonte limita a exibição dos lançamentos fixos futuros.</p>
       </SettingsCard>
     </form>
-    <IncomeCredits month={referenceMonth} setMonth={setMonth} horizon={horizon} tags={tags} currency={settings.currency} notify={notify} />
-    <section className="panel revision-panel">
-      <div className="panel-heading">
-        <div><h2>Reajustes salariais</h2><p>Vigências mensais do salário líquido</p></div>
-        <button className="button secondary compact" onClick={() => setModal({})}><Plus size={17} /> Agendar reajuste</button>
-      </div>
-      {!revisions.length && <p className="empty">Nenhum reajuste agendado.</p>}
-      {revisions.length > 0 && <ul className="revision-list">
-        {revisions.map(item => {
-          const future = item.effective_month.slice(0, 7) > month
-          return <li key={item.effective_month}>
-            <CalendarDays size={18} /><span>{monthLabel(item.effective_month)}</span>
-            <strong>{formatMoney(item.amount_cents, settings.currency)}</strong>
-            {future && <div className="tree-actions">
-              <button className="icon-button" aria-label="Editar reajuste" onClick={() => setModal({ item })}><Pencil size={17} /></button>
-              <button className="icon-button danger-icon" aria-label="Remover reajuste" onClick={() => setModal({ item, remove: true })}><Trash2 size={17} /></button>
-            </div>}
-          </li>
-        })}
-      </ul>}
-    </section>
     {modal && <RevisionModal {...modal} min={followingMonth(month)} currency={settings.currency} onClose={() => setModal(null)}
       onSuccess={async () => {
         setModal(null)
@@ -119,7 +120,7 @@ export function Settings({ settings, revisions, referenceMonth, setMonth, horizo
 }
 
 function SettingsCard({ Icon, title, children }) {
-  return <section className="panel settings-card">
+  return <section className="panel settings-card" aria-label={title}>
     <h2><span className="setup-icon"><Icon size={18} /></span>{title}</h2>{children}
   </section>
 }

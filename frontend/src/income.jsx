@@ -1,14 +1,27 @@
 import { useState } from 'react'
-import { Banknote, CircleStop, Pencil, Plus, Repeat2, Trash2 } from 'lucide-react'
+import { Banknote, CircleStop, Pencil, Plus, Repeat2, Search, Trash2 } from 'lucide-react'
 import { api } from './api'
 import { DeleteModal, ErrorNotice, Modal, MoneyInput, MonthPicker, TagPicker } from './components'
 import { addMonthsToDate, dateLabel, formatMoney, localDate, parseMoney } from './finance'
 import { useMonthData } from './month-data'
 
-export function IncomeCredits({ month, setMonth, horizon, tags, currency, notify }) {
+const normalize = text => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR')
+
+export function CreditsPage({ month, setMonth, horizon, tags, currency, notify }) {
   const { data, error, reload } = useMonthData('/income', month)
   const [modal, setModal] = useState(null)
+  const [query, setQuery] = useState('')
+  const [kind, setKind] = useState('')
+  const [tag, setTag] = useState('')
   const close = () => setModal(null)
+  const search = normalize(query.trim())
+  const credits = data && [...data.unassigned, ...data.credits].filter(credit => {
+    const labels = [credit.description, creditDetails(credit), ...credit.tags.map(item => item.name)]
+    return (!kind || credit.kind === kind) &&
+      (!tag || credit.tags.some(item => item.id === Number(tag))) &&
+      normalize(labels.join(' ')).includes(search)
+  })
+  const total = credits?.reduce((sum, credit) => sum + (credit.month ? credit.amount_cents : 0), 0)
 
   function complete(message, reference) {
     if (reference) setMonth(reference)
@@ -17,39 +30,60 @@ export function IncomeCredits({ month, setMonth, horizon, tags, currency, notify
     notify(message)
   }
 
-  return <section className="panel revision-panel" aria-label="Créditos">
-    <div className="panel-heading income-heading">
-      <div><h2>Créditos</h2><p>Créditos avulsos e fixos da renda do mês</p></div>
+  return <>
+    <section className="page-heading">
+      <div><h1>Créditos</h1><p>Consulte e cadastre créditos avulsos e fixos.</p></div>
       <div className="heading-actions">
         <MonthPicker month={month} setMonth={setMonth} label="Mês dos créditos" />
-        <button className="button secondary compact" onClick={() => setModal({})}><Plus size={17} /> Novo crédito</button>
+        <button className="button primary" onClick={() => setModal({})}><Plus size={18} /> Novo crédito</button>
       </div>
-    </div>
-    {error && <><ErrorNotice message={error} /><button className="button secondary compact" onClick={reload}>Tentar novamente</button></>}
-    {!data && !error && <p className="empty" role="status">Carregando créditos…</p>}
-    {data?.unassigned.length > 0 && <p className="field-note">Defina o mês dos créditos sem competência para incluí-los na renda.</p>}
-    {data?.credits.length === 0 && <p className="empty">Nenhum crédito cadastrado para este mês.</p>}
-    {data && <ul className="revision-list income-list">{[...data.unassigned, ...data.credits].map(credit => {
-      const name = credit.description || (credit.kind === 'fixo' ? 'Crédito fixo' : 'Crédito avulso')
-      return <li key={credit.id}>
-        {credit.kind === 'fixo' ? <Repeat2 size={18} /> : <Banknote size={18} />}
-        <div className="income-entry">
-          <p>{name}</p>
-          <small className="muted">{creditDetails(credit)}</small>
-          {credit.tags.length > 0 && <span className="tag-list">{credit.tags.map(tag =>
-            <span className="tag-chip" key={tag.id}>{tag.name}</span>)}</span>}
-        </div>
-        <strong>{formatMoney(credit.amount_cents, currency)}</strong>
-        {(credit.can_edit || credit.can_delete || credit.can_close) && <div className="tree-actions">
-          {credit.can_close && <button className="icon-button close-expense" title="Finalizar crédito fixo" aria-label={`Finalizar ${name}`}
-            onClick={() => setModal({ credit, close: true })}><CircleStop size={17} /><span>Finalizar</span></button>}
-          {credit.can_edit && <button className="icon-button" aria-label={`${credit.month ? 'Editar' : 'Definir mês de'} ${name}`}
-            onClick={() => setModal({ credit })}><Pencil size={17} /></button>}
-          {credit.can_delete && <button className="icon-button danger-icon" aria-label={`Excluir ${name}`}
-            onClick={() => setModal({ credit, remove: true })}><Trash2 size={17} /></button>}
-        </div>}
-      </li>
-    })}</ul>}
+    </section>
+    <section className="panel" aria-label="Lançamentos de crédito">
+      <div className="filter-row">
+        <label className="search"><Search size={18} /><input type="search" aria-label="Buscar créditos" placeholder="Buscar lançamentos"
+          value={query} onChange={event => setQuery(event.target.value)} /></label>
+        <select aria-label="Filtrar créditos por tipo" value={kind} onChange={event => setKind(event.target.value)}>
+          <option value="">Todos os tipos</option><option value="avulso">Avulsos</option><option value="fixo">Fixos</option>
+        </select>
+        <select aria-label="Filtrar créditos por tag" value={tag} onChange={event => setTag(event.target.value)}>
+          <option value="">Todas as tags</option>
+          {tags.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+        </select>
+      </div>
+      {error && <div className="inset"><ErrorNotice message={error} />
+        <button className="button secondary compact" onClick={reload}>Tentar novamente</button></div>}
+      {!data && !error && <p className="empty" role="status">Carregando créditos…</p>}
+      {credits && <div className="expense-summary">
+        <span>{credits.length} {credits.length === 1 ? 'crédito exibido' : 'créditos exibidos'}</span>
+        <strong>{formatMoney(total, currency)}</strong>
+      </div>}
+      {credits?.some(credit => !credit.month) && <p className="field-note inset">Defina o mês dos créditos sem competência para incluí-los na renda.</p>}
+      {credits?.length === 0 && <p className="empty">
+        {data.credits.length || data.unassigned.length
+          ? 'Nenhum crédito corresponde aos filtros.'
+          : 'Nenhum crédito cadastrado para este mês.'}</p>}
+      {credits?.length > 0 && <ul className="revision-list income-list">{credits.map(credit => {
+        const name = credit.description || (credit.kind === 'fixo' ? 'Crédito fixo' : 'Crédito avulso')
+        return <li key={credit.id}>
+          {credit.kind === 'fixo' ? <Repeat2 size={18} /> : <Banknote size={18} />}
+          <div className="income-entry">
+            <p>{name}</p>
+            <small className="muted">{creditDetails(credit)}</small>
+            {credit.tags.length > 0 && <span className="tag-list">{credit.tags.map(tag =>
+              <span className="tag-chip" key={tag.id}>{tag.name}</span>)}</span>}
+          </div>
+          <strong>{formatMoney(credit.amount_cents, currency)}</strong>
+          {(credit.can_edit || credit.can_delete || credit.can_close) && <div className="tree-actions">
+            {credit.can_close && <button className="icon-button close-expense" title="Finalizar crédito fixo" aria-label={`Finalizar ${name}`}
+              onClick={() => setModal({ credit, close: true })}><CircleStop size={17} /><span>Finalizar</span></button>}
+            {credit.can_edit && <button className="icon-button" aria-label={`${credit.month ? 'Editar' : 'Definir mês de'} ${name}`}
+              onClick={() => setModal({ credit })}><Pencil size={17} /></button>}
+            {credit.can_delete && <button className="icon-button danger-icon" aria-label={`Excluir ${name}`}
+              onClick={() => setModal({ credit, remove: true })}><Trash2 size={17} /></button>}
+          </div>}
+        </li>
+      })}</ul>}
+    </section>
     {modal?.remove && <DeleteModal title="Excluir crédito" onClose={close}
       action={() => api(`/income/credits/${modal.credit.id}`, 'DELETE')} onSuccess={() => complete('Crédito excluído.')}>
       <p>Excluir o crédito de <strong>{formatMoney(modal.credit.amount_cents, currency)}</strong>?</p>
@@ -57,7 +91,7 @@ export function IncomeCredits({ month, setMonth, horizon, tags, currency, notify
     {modal?.close && <CloseCreditForm credit={modal.credit} onClose={close} onSave={() => complete('Crédito fixo finalizado.')} />}
     {modal && !modal.remove && !modal.close && <CreditForm credit={modal.credit} month={month} horizon={horizon}
       tags={tags} currency={currency} onClose={close} onSave={reference => complete('Crédito salvo.', reference)} />}
-  </section>
+  </>
 }
 
 function creditDetails(credit) {

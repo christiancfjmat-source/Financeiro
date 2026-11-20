@@ -1,21 +1,21 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Gauge, Layers3, Pencil, Plus, Power, Search, Trash2 } from 'lucide-react'
 import { api } from './api'
-import { ErrorNotice, Modal, MonthPicker } from './components'
-import { BudgetDialog, BudgetUsage } from './budgets'
-import { formatMoney } from './finance'
+import { ErrorNotice, Modal } from './components'
+import { BudgetDialog } from './budgets'
+import { formatMoney, localMonth } from './finance'
 import { useMonthData } from './month-data'
 import { departmentIcons, tones } from './overview'
 
 const levelNames = ['Departamento', 'Categoria', 'Subcategoria']
 const normalize = text => text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLocaleLowerCase('pt-BR')
 
-export function Categories({ items, settings, month, setMonth, refresh, notify }) {
+export function Categories({ items, settings, refresh, notify }) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('all')
   const [expanded, setExpanded] = useState({})
   const [modal, setModal] = useState(null)
-  const { data: report, error, reload } = useMonthData('/spending', month)
+  const { data: report, error, reload } = useMonthData('/spending', localMonth())
   const budgets = new Map(report?.budgets.map(budget => [budget.category_id, budget]))
   const map = new Map(items.map(item => [item.id, item]))
   const children = new Map()
@@ -41,7 +41,6 @@ export function Categories({ items, settings, month, setMonth, refresh, notify }
     const open = filtering || (expanded[item.id] ?? (item.level === 1 && index === 0))
     const Icon = item.level === 1 ? departmentIcons[index % departmentIcons.length] : Layers3
     const budget = budgets.get(item.id)
-    const used = report?.by_category[item.id] ?? 0
     return <li key={item.id} className={`tree-item level-${item.level}`}>
       <div className="tree-row">
         {descendants.length > 0 ? <button type="button" className="icon-button expand"
@@ -66,9 +65,8 @@ export function Categories({ items, settings, month, setMonth, refresh, notify }
             title="Excluir" onClick={() => setModal({ mode: 'delete', item })}><Trash2 size={16} /></button>
         </div>
       </div>
-      {item.level === 2 && report && (budget || used > 0) && <div className="tree-budget">
-        {budget ? <BudgetUsage budget={budget} settings={settings} /> :
-          <span className="muted">{formatMoney(used, settings.currency)} gastos · sem teto no mês</span>}
+      {item.level === 2 && budget && <div className="tree-budget muted">
+        Teto mensal {formatMoney(budget.limit_cents, settings.currency)}
       </div>}
       {open && descendants.length > 0 && <ul>{descendants.map(child => renderNode(child, index))}</ul>}
     </li>
@@ -78,7 +76,6 @@ export function Categories({ items, settings, month, setMonth, refresh, notify }
     <section className="page-heading">
       <div><h1>Categorias</h1><p>Organize as despesas e configure os tetos mensais de cada categoria.</p></div>
       <div className="heading-actions">
-        <MonthPicker month={month} setMonth={setMonth} label="Mês de referência" />
         <button type="button" className="button primary" onClick={() => setModal({ mode: 'edit' })}><Plus size={18} /> Novo item</button>
       </div>
     </section>

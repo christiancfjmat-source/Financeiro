@@ -22,15 +22,17 @@ test('cadastra cartão e calcula vencimento ao lançar uma despesa comum', async
   const method = dialog.getByRole('combobox', { name: 'Forma de pagamento' })
   await method.selectOption({ label: 'Cartão de crédito' })
   await expect(dialog.getByRole('button', { name: 'Salvar despesa' })).toBeDisabled()
+  await expect(dialog.getByRole('status')).toContainText('Configure o vencimento deste cartão')
   await method.selectOption({ label: 'Cartão da casa' })
   await expect(dialog.getByLabel('Data da compra')).toHaveValue(localDate())
-  await expect(dialog.getByLabel('Dia de vencimento')).toHaveValue('10')
+  await expect(dialog.getByLabel('Dia de vencimento')).toHaveCount(0)
 
   const month = addMonthsToDate(localDate(), -6).slice(0, 7)
   const purchase = `${month}-27`
   const due = `${followingMonth(month)}-10`
   await dialog.getByLabel('Data da compra').fill(purchase)
-  await expect(dialog.getByLabel('Vencimento previsto')).toHaveValue(due)
+  await expect(dialog.getByLabel('Vencimento previsto')).toHaveCount(0)
+  await expect(dialog.locator(':scope > [role="status"]')).toHaveText(`Vencimento previsto em ${dateLabel(due)}.`)
   await dialog.getByLabel('Valor da despesa').fill('80,50')
   await dialog.getByRole('combobox', { name: 'Categoria', exact: true }).selectOption({ label: 'Supermercado' })
   await dialog.getByLabel('Descrição (opcional)').fill('Compra no cartão')

@@ -220,7 +220,6 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
       + Number(end.slice(5, 7)) - Number(effectiveStart.slice(5, 7)) + 1
     : 0
   const amountLabel = individual ? 'Valor da parcela' : canSplitPurchase && purchaseCount ? 'Valor total da despesa' : 'Valor da despesa'
-  const firstPurchaseDue = isCard ? dueDate : expenseDate
   const [departmentId, categoryId] = category.split(':').map(Number)
   const departments = classifications.filter(item => item.level === 1 && item.active)
   const activeCategories = classifications.filter(item => item.level === 2 && item.active)
@@ -272,6 +271,12 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
   }
 
   return <Modal title={expense ? 'Editar despesa' : 'Nova despesa'} onClose={() => { if (!busy) onClose() }}>
+    {isCard && (!dueDay || dueDate) && <p className="expense-payment-note" role="status">
+      {!dueDay ? 'Configure o vencimento deste cartão em Formas de pagamento.'
+        : (canSplitPurchase && Number(purchaseCount) > 1
+          ? `Primeira parcela em ${dateLabel(dueDate)}.`
+          : `Vencimento previsto em ${dateLabel(dueDate)}.`)}
+    </p>}
     <form onSubmit={submit}>
       <ErrorNotice message={error} />
       <fieldset className="expense-nature" disabled={Boolean(installment)}>
@@ -359,15 +364,8 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
         <input type="date" required min="1900-01-01" max="9999-12-31" value={expenseDate}
           onChange={event => setExpenseDate(event.target.value)} />
       </label>}
-      {isCard && <div className="payment-date-fields">
-        <div className="fields-two">
-          <label className="field">Dia de vencimento<input readOnly value={dueDay ?? ''} placeholder="A configurar" /></label>
-          <label className="field">Vencimento previsto<input type="date" readOnly value={dueDate ?? ''} /></label>
-        </div>
-        {!dueDay && <p className="field-note">Configure o vencimento deste cartão na página Formas de pagamento.</p>}
-      </div>}
-      {canSplitPurchase && purchaseCount && firstPurchaseDue && <p className="field-note purchase-note">
-        Primeira parcela em {dateLabel(firstPurchaseDue)}.
+      {!isCard && canSplitPurchase && Number(purchaseCount) > 1 && expenseDate && <p className="field-note purchase-note">
+        Primeira parcela em {dateLabel(expenseDate)}.
       </p>}
       <label className="field">Categoria
         <select value={category} required onChange={event => {

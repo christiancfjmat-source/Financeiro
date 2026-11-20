@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { House, LayoutDashboard, Layers3, Settings2, Moon, Sun, ChevronRight, ShieldCheck, Menu, X, ReceiptText, Tags, CreditCard } from 'lucide-react'
+import { Banknote, House, LayoutDashboard, Layers3, Settings2, Moon, Sun, ChevronRight, ShieldCheck, Menu, X, ReceiptText, Tags, CreditCard } from 'lucide-react'
 import { api } from './api'
 import { ErrorNotice } from './components'
 import { Overview } from './overview'
 import { Categories } from './categories'
 import { ExpenseDialog, Expenses } from './expenses'
+import { CreditsPage } from './income'
 import { PaymentMethodsPage } from './payment-methods'
 import { TagsPage } from './tags'
 import { Settings } from './settings'
@@ -15,6 +16,7 @@ import './style.css'
 const pages = [
   { id: 'inicio', label: 'Visão geral', Icon: LayoutDashboard },
   { id: 'despesas', label: 'Despesas', Icon: ReceiptText },
+  { id: 'creditos', label: 'Créditos', Icon: Banknote },
   { id: 'pagamentos', label: 'Formas de pagamento', Icon: CreditCard },
   { id: 'categorias', label: 'Categorias', Icon: Layers3 },
   { id: 'tags', label: 'Tags', Icon: Tags },
@@ -145,12 +147,14 @@ function App() {
             setExpenseVersion(value => value + 1)
             setNotice(count === 1 ? 'Parcela antecipada.' : `${count} parcelas antecipadas.`)
           }} />}
+        {data && page.id === 'creditos' && <CreditsPage month={month} setMonth={setMonth} horizon={horizon}
+          tags={data.tags} currency={data.settings.currency} notify={setNotice} />}
         {data && page.id === 'categorias' && <Categories items={data.classifications} settings={data.settings}
-          month={month} setMonth={setMonth} refresh={refresh} notify={setNotice} />}
+          refresh={refresh} notify={setNotice} />}
         {data && page.id === 'pagamentos' && <PaymentMethodsPage methods={data.paymentMethods} refresh={refresh} notify={setNotice} />}
         {data && page.id === 'tags' && <TagsPage tags={data.tags} refresh={refresh} notify={setNotice} />}
         {data && page.id === 'configuracoes' && <Settings settings={data.settings} revisions={data.revisions}
-          referenceMonth={month} setMonth={setMonth} horizon={horizon} tags={data.tags} refresh={refresh} notify={setNotice} />}
+          refresh={refresh} notify={setNotice} />}
       </main>
     </div>
     {data && expenseDialog && <ExpenseDialog {...expenseDialog} classifications={data.classifications}

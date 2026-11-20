@@ -135,7 +135,7 @@ h1 { font-size: clamp(1.9rem, 3vw, 2.28rem); font-weight: 730; letter-spacing: -
 .metric p { font-size: .79rem; color: var(--muted); margin-top: 3px; }
 .overview-grid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; align-items: start; }
 .overview-visuals { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
-.distribution, .revision-panel { padding: 17px 19px; }
+.distribution { padding: 17px 19px; }
 .panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 10px; margin-bottom: 13px; }
 .panel-heading h2, .settings-card h2, .modal h2 { color: inherit; font-size: 1.12rem; font-weight: 700; letter-spacing: -.025em; }
 .panel-heading p { margin-top: 2px; color: var(--muted); font-size: .87rem; }
@@ -193,14 +193,16 @@ select { padding: 0 9px; }
 .money-input { display: flex; align-items: center; padding-left: 9px; color: var(--muted); }
 .money-input input { border: 0; min-width: 0; color: CanvasText; }
 .field-note, .muted { color: var(--muted); font-size: .87rem; }
-.revision-panel { margin-top: 14px; }
-.income-heading { flex-wrap: wrap; }
+.salary-revisions { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+.salary-revisions .panel-heading { align-items: center; flex-wrap: wrap; }
+.salary-revisions h3 { font-size: .92rem; font-weight: 650; }
 .income-entry { min-width: 0; overflow-wrap: anywhere; }
 .revision-list li {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 76px); gap: 9px;
   align-items: center; padding: 8px 0; border-top: 1px solid var(--border);
 }
 .revision-list.income-list li { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.income-list { padding-inline: 15px; }
 .revision-list li > span { text-transform: capitalize; }
 .revision-list li > svg { color: var(--accent); }
 .modal {
@@ -340,7 +342,6 @@ select { padding: 0 9px; }
 .usage-track span { display: block; height: 100%; border-radius: inherit; background: var(--usage); }
 .tree-item:has(> .tree-budget) > .tree-row { border-bottom: 0; }
 .tree-budget { padding: 0 15px 10px 100px; border-bottom: 1px solid var(--border); }
-.tree-budget .budget-usage { max-width: 420px; }
 .tree-actions .budget-button {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   width: auto; padding-inline: 7px; color: var(--accent); font-size: .82rem; font-weight: 630;
@@ -392,9 +393,8 @@ select { padding: 0 9px; }
 .expense-nature:disabled .expense-toggle label { cursor: default; }
 .expense-modality label { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; font-size: .86rem; }
 .expense-modality input { accent-color: var(--accent); }
-.payment-date-fields { margin-bottom: 10px; }
+.expense-payment-note { margin-bottom: 12px; padding: 8px 10px; border-radius: 8px; color: var(--muted); background: var(--soft); font-size: .87rem; }
 .purchase-note { margin-bottom: 10px; }
-.payment-date-fields input[readonly] { background: var(--soft); }
 .payment-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px; align-items: start; }
 .payment-group { padding: 10px 14px; }
 .payment-group h2 { font-size: .94rem; font-weight: 680; margin: 3px 0 6px; }

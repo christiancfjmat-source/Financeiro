@@ -20,7 +20,8 @@ export function Overview({ settings, classifications, revisions, tags, month, se
   const balance = income && report ? income.total_cents - report.total_cents : null
   const share = income?.total_cents && report ? percent.format(report.total_cents / income.total_cents) : '—'
   const budgetTotal = report?.budgets.reduce((total, budget) => total + budget.limit_cents, 0)
-  const budgetBalance = income && report ? income.total_cents - budgetTotal : null
+  const budgetShare = budgetTotal > 0 ? percent.format(report.total_cents / budgetTotal) : '—'
+  const overBudget = budgetTotal > 0 && report.total_cents > budgetTotal
   const names = new Map(classifications.map(item => [item.id, item.name]))
   const parents = new Map(classifications.map(item => [item.id, item.parent_id]))
 
@@ -42,8 +43,8 @@ export function Overview({ settings, classifications, revisions, tags, month, se
         detail={`Renda do mês ${money(income?.total_cents)}`} />
       <Metric Icon={Wallet} tone={balance < 0 ? 'rose' : 'green'} title="Saldo do mês" value={money(balance)}
         detail="Renda do mês menos despesas" negative={balance < 0} />
-      <Metric Icon={ShieldCheck} tone={budgetBalance < 0 ? 'rose' : 'purple'} title="Saldo se atingir os tetos" value={money(budgetBalance)}
-        detail={`Tetos do mês ${money(budgetTotal)}`} negative={budgetBalance < 0} />
+      <Metric Icon={ShieldCheck} tone={overBudget ? 'rose' : 'purple'} title="Teto utilizado" value={budgetShare}
+        detail={`Teto total ${money(budgetTotal)}`} negative={overBudget} />
     </section>
     {reportError && <div className="report-error"><ErrorNotice message={reportError} />
       <button className="button secondary compact" onClick={reload}>Tentar novamente</button></div>}
