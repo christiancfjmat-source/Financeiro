@@ -57,6 +57,15 @@ export function addMonthsToDate(value, months) {
   return target.toISOString().slice(0, 10)
 }
 
+export function cardDueOn(purchase, dueDay) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(purchase || '') || !dueDay) return null
+  const month = purchase.slice(0, 7)
+  const date = `${month}-${String(dueDay).padStart(2, '0')}`
+  const sameMonth = addMonthsToDate(date, 0)
+  if (sameMonth >= purchase) return sameMonth
+  return month === '9999-12' ? null : addMonthsToDate(date, 1)
+}
+
 export function budgetPercent(spent, limit) {
   return limit ? BigInt(spent) * 100n / BigInt(limit) : null
 }

@@ -128,6 +128,21 @@ class InstallmentAdvance(Base):
     paid_cents: Mapped[int] = mapped_column(BigInteger)
 
 
+class PaymentMethod(Base):
+    __tablename__ = "payment_methods"
+    __table_args__ = (
+        UniqueConstraint("kind", "name_key", name="unique_payment_method_name"),
+        CheckConstraint("due_day IS NULL OR (kind = 'credito' AND due_day BETWEEN 1 AND 31)",
+                        name="payment_method_due_day"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    name_key: Mapped[str] = mapped_column(String(250))
+    kind: Mapped[str] = mapped_column(String(24))
+    due_day: Mapped[int | None]
+
+
 class Expense(Base):
     __tablename__ = "expenses"
     __table_args__ = (
@@ -155,6 +170,11 @@ class Expense(Base):
         "credit_kind IS NULL OR (agreement_id IS NULL AND credit_kind IN ('emprestimo', 'financiamento'))",
         name="expense_single_credit_kind",
     ))
+    payment_method_id: Mapped[int | None] = mapped_column(ForeignKey("payment_methods.id"), index=True)
+    payment_due_day: Mapped[int | None] = mapped_column(CheckConstraint(
+        "payment_method_id IS NOT NULL AND (payment_due_day IS NULL OR payment_due_day BETWEEN 1 AND 31)",
+        name="expense_payment_terms",
+    ))
     description: Mapped[str] = mapped_column(String(500))
     amount_cents: Mapped[int] = mapped_column(BigInteger)
     department_id: Mapped[int] = mapped_column(ForeignKey("classifications.id", ondelete="RESTRICT"), index=True)
@@ -163,6 +183,7 @@ class Expense(Base):
     tags: Mapped[list[Tag]] = relationship(secondary=expense_tags, order_by=Tag.name_key)
     agreement: Mapped[CreditAgreement | None] = relationship()
     advance: Mapped[InstallmentAdvance | None] = relationship()
+    payment_method: Mapped[PaymentMethod] = relationship()
 
 
 class MonthlyBudget(Base):

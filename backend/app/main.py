@@ -10,6 +10,7 @@ from .api import router
 from .db import ROOT, database_path, engine_for, migrate
 from .income_api import router as income_router
 from .installments import router as advances_router
+from .payment_methods import router as payment_methods_router
 from .spending_api import router as spending_router
 
 
@@ -24,7 +25,7 @@ def create_app(path: Path | None = None):
         finally:
             engine.dispose()
 
-    app = FastAPI(title="Moradia | Gestão Financeira", version="0.4.3", lifespan=lifespan,
+    app = FastAPI(title="Moradia | Gestão Financeira", version="0.4.4", lifespan=lifespan,
                   docs_url=None, redoc_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
 
@@ -46,6 +47,7 @@ def create_app(path: Path | None = None):
     app.include_router(income_router)
     app.include_router(spending_router)
     app.include_router(advances_router)
+    app.include_router(payment_methods_router)
     dist = ROOT / "frontend" / "dist"
     if dist.is_dir():
         app.mount("/", StaticFiles(directory=dist, html=True), name="frontend")

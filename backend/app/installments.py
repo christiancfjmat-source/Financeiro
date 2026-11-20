@@ -28,6 +28,7 @@ def create_installments(template: Expense, kind: CreditKind) -> list[Expense]:
             amount_cents=template.amount_cents, description=template.description,
             department_id=template.department_id, category_id=template.category_id,
             subcategory_id=template.subcategory_id, tags=list(template.tags),
+            payment_method=template.payment_method, payment_due_day=template.payment_due_day,
         ))
     return expenses
 

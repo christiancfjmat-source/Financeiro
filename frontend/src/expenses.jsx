@@ -3,8 +3,9 @@ import { CalendarArrowDown, CircleStop, CreditCard, Pencil, Plus, ReceiptText, R
 import { api } from './api'
 import { AdvanceDialog, creditLabels } from './advances'
 import { DeleteModal, ErrorNotice, Modal, MoneyInput, MonthPicker, TagPicker } from './components'
-import { dateLabel, formatMoney, localDate, monthLabel, parseMoney } from './finance'
+import { cardDueOn, dateLabel, formatMoney, localDate, monthLabel, parseMoney } from './finance'
 import { useMonthData } from './month-data'
+import { paymentKinds } from './payment-methods'
 
 export function Expenses({ classifications, tags, currency, month, setMonth, horizon, version, onNew, onEdit, onDelete, onCloseExpense, onAdvanced }) {
   const { data, error, reload } = useMonthData('/expenses', month, version)
@@ -22,7 +23,8 @@ export function Expenses({ classifications, tags, currency, month, setMonth, hor
       names.get(expense.subcategory_id), ...expense.tags.map(tag => tag.name),
       creditLabels[expense.credit_kind], installment?.agreement_description,
       installment && `parcela ${installment.number}/${installment.total}`,
-      installment && dateLabel(installment.scheduled_on), advance && 'antecipada antecipação']
+      installment && dateLabel(installment.scheduled_on), advance && 'antecipada antecipação',
+      expense.payment_method.name, expense.payment_due_on && dateLabel(expense.payment_due_on)]
     return (!categoryFilter || Number(categoryFilter) === expense.category_id) &&
       (!tagFilter || expense.tags.some(tag => tag.id === Number(tagFilter))) &&
       (!kindFilter || types.includes(kindFilter)) &&
@@ -79,6 +81,9 @@ export function Expenses({ classifications, tags, currency, month, setMonth, hor
             <strong>{expense.description || names.get(expense.category_id)}</strong>
             <small>{[names.get(expense.department_id), names.get(expense.category_id), names.get(expense.subcategory_id)]
               .filter(Boolean).join(' / ')}</small>
+            {expense.payment_method.kind !== 'financiamento' && <small>
+              {expense.payment_method.name}{expense.payment_due_on && ` · Vencimento previsto em ${dateLabel(expense.payment_due_on)}`}
+            </small>}
             {expense.installment && <small className="recurrence-label"><Repeat2 size={14} />
               {creditLabels[expense.installment.kind]} · Parcela {expense.installment.number}/{expense.installment.total}</small>}
             {expense.credit_mode === 'unica' && <small className="recurrence-label"><CreditCard size={14} />
@@ -116,7 +121,7 @@ export function Expenses({ classifications, tags, currency, month, setMonth, hor
   </>
 }
 
-export function ExpenseDialog({ expense, remove, close, currency, month, horizon, classifications, tags, onClose, onSaved }) {
+export function ExpenseDialog({ expense, remove, close, currency, month, horizon, classifications, tags, paymentMethods, onClose, onSaved }) {
   if (close) return <CloseExpenseForm expense={expense} onClose={onClose} onSaved={onSaved} />
   if (remove) return <DeleteModal title="Excluir despesa" onClose={onClose} onSuccess={() => onSaved(expense, 'Despesa excluída.')}
     action={() => api(`/expenses/${expense.id}`, 'DELETE')}>
@@ -125,7 +130,7 @@ export function ExpenseDialog({ expense, remove, close, currency, month, horizon
       : expense.kind === 'fixa' ? 'A recorrência será retirada dos meses da vigência.'
         : 'O gasto será retirado dos totais e do acompanhamento do teto mensal.'}</p>
   </DeleteModal>
-  return <ExpenseForm {...{ expense, currency, month, horizon, classifications, tags, onClose, onSaved }} />
+  return <ExpenseForm {...{ expense, currency, month, horizon, classifications, tags, paymentMethods, onClose, onSaved }} />
 }
 
 function CloseExpenseForm({ expense, onClose, onSaved }) {
@@ -164,7 +169,7 @@ function CloseExpenseForm({ expense, onClose, onSaved }) {
   </Modal>
 }
 
-function ExpenseForm({ expense, currency, month, horizon, classifications, tags, onClose, onSaved }) {
+function ExpenseForm({ expense, currency, month, horizon, classifications, tags, paymentMethods, onClose, onSaved }) {
   const original = expense ? `${expense.department_id}:${expense.category_id}` : ''
   const [category, setCategory] = useState(original)
   const [subcategory, setSubcategory] = useState(String(expense?.subcategory_id ?? ''))
@@ -179,16 +184,24 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
   const [start, setStart] = useState(originalDate || today)
   const [timed, setTimed] = useState(Boolean(expense?.ends_on))
   const [end, setEnd] = useState(expense?.ends_on ?? '')
-  const [creditNature, setCreditNature] = useState(expense ? expense.credit_kind || 'comum' : '')
+  const [financing, setFinancing] = useState(Boolean(expense?.credit_kind))
+  const [creditNature, setCreditNature] = useState(expense?.credit_kind || 'financiamento')
   const [creditMode, setCreditMode] = useState(expense?.credit_mode || (expense ? 'unica' : ''))
+  const [expenseDate, setExpenseDate] = useState(expense?.occurred_on ?? (currentMonth === month ? today : ''))
+  const [paymentId, setPaymentId] = useState(() => paymentMethods.some(method => method.id === expense?.payment_method.id)
+    ? String(expense.payment_method.id) : '')
   const installment = expense?.installment
   const startLocked = expense?.kind === 'fixa' && originalDate < `${currentMonth}-01`
-  const creditKind = creditNature && creditNature !== 'comum' ? creditNature : null
+  const creditKind = financing ? creditNature : null
   const individual = Boolean(creditKind && creditMode === 'individual')
   const effectiveKind = individual ? 'fixa' : kind
   const fixed = effectiveKind === 'fixa'
   const hasTerm = individual || timed
   const effectiveStart = startMode === 'today' ? today : start
+  const payment = paymentMethods.find(method => method.id === Number(paymentId))
+  const isCard = !financing && payment?.kind === 'credito'
+  const dueDay = isCard ? (payment.id === expense?.payment_method.id ? expense.payment_due_day : payment.due_day) : null
+  const dueDate = cardDueOn(fixed ? effectiveStart : expenseDate, dueDay)
   const installmentCount = individual && end >= effectiveStart && effectiveStart
     ? (Number(end.slice(0, 4)) - Number(effectiveStart.slice(0, 4))) * 12
       + Number(end.slice(5, 7)) - Number(effectiveStart.slice(5, 7)) + 1
@@ -213,14 +226,17 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
     try {
       const amount = parseMoney(values.get('amount'), amountLabel)
       if (amount <= 0) throw new Error('Informe um valor maior que zero.')
-      if (!creditNature || (creditKind && !creditMode)) throw new Error('Informe se é financiamento e como cadastrar.')
+      if (financing && !creditMode) throw new Error('Informe como cadastrar o financiamento.')
+      if (!financing && !payment) throw new Error('Selecione a forma de pagamento.')
+      if (isCard && !dueDay) throw new Error('Configure o dia de vencimento do cartão em Formas de pagamento.')
       const saved = await api(expense ? `/expenses/${expense.id}` : '/expenses', expense ? 'PUT' : 'POST', {
         amount_cents: amount,
         kind: effectiveKind,
-        occurred_on: installment ? installment.scheduled_on : fixed ? effectiveStart : values.get('date'),
+        occurred_on: installment ? installment.scheduled_on : fixed ? effectiveStart : expenseDate,
         ends_on: fixed && hasTerm && !installment ? end : null,
         credit_kind: installment ? null : creditKind,
         credit_mode: creditKind && !installment ? creditMode : null,
+        payment_method_id: financing ? null : payment.id,
         description: values.get('description').trim(),
         department_id: departmentId,
         category_id: categoryId,
@@ -243,17 +259,36 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
   return <Modal title={expense ? 'Editar despesa' : 'Nova despesa'} onClose={() => { if (!busy) onClose() }}>
     <form onSubmit={submit}>
       <ErrorNotice message={error} />
-      <div className="fields-two">
-        <MoneyInput label={amountLabel} name="amount" currency={currency} cents={expense?.amount_cents} required autoFocus />
-        <label className="field">É financiamento?<select value={creditNature} required disabled={Boolean(installment)}
-          onChange={event => {
-            setCreditNature(event.target.value)
-            if (!expense) setCreditMode('')
-          }}>
-          <option value="" disabled>Selecione</option><option value="comum">Não, despesa comum</option>
-          <option value="financiamento">Sim, financiamento</option><option value="emprestimo">É um empréstimo</option>
-        </select></label>
-      </div>
+      <fieldset className="expense-nature" disabled={Boolean(installment)}>
+        <legend>Natureza da despesa</legend>
+        <div className="expense-toggle">
+          <label><input type="radio" name="expense-nature" checked={!financing} onChange={() => setFinancing(false)} />
+            <span>Despesa comum</span></label>
+          <label><input type="radio" name="expense-nature" checked={financing} onChange={() => setFinancing(true)} />
+            <span>Financiamento (empréstimo)</span></label>
+        </div>
+      </fieldset>
+      <MoneyInput label={amountLabel} name="amount" currency={currency} cents={expense?.amount_cents} required autoFocus />
+      {financing && !installment && <fieldset className="expense-modality">
+        <legend>Modalidade</legend>
+        {Object.entries(creditLabels).map(([value, label]) => <label key={value}>
+          <input type="radio" name="credit-modality" checked={creditNature === value} onChange={() => setCreditNature(value)} /> {label}
+        </label>)}
+      </fieldset>}
+      {!financing && <label className="field">Forma de pagamento
+        <select value={paymentId} required onChange={event => {
+          const next = paymentMethods.find(method => method.id === Number(event.target.value))
+          setPaymentId(event.target.value)
+          if (next?.kind === 'credito' && !expenseDate) setExpenseDate(today)
+        }}>
+          <option value="">Selecione uma forma de pagamento</option>
+          {paymentKinds.map(([kind, label]) => {
+            const methods = paymentMethods.filter(method => method.kind === kind)
+            return methods.length > 0 && <optgroup label={label} key={kind}>{methods.map(method =>
+              <option key={method.id} value={method.id}>{method.name}</option>)}</optgroup>
+          })}
+        </select>
+      </label>}
       {!expense && creditKind && <fieldset className="credit-options">
         <legend>Como cadastrar?</legend>
         <label className="credit-option">
@@ -298,8 +333,17 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
           ? `Serão criadas ${installmentCount} ${installmentCount === 1 ? 'parcela individual' : 'parcelas individuais'}, uma por mês da vigência.`
           : 'O valor informado será aplicado a cada parcela.'}</p>}
         {startLocked && <p className="field-note">As alterações passam a valer a partir do mês atual.</p>}
-      </fieldset> : <label className="field">Data da despesa<input name="date" type="date" required min="1900-01-01" max="9999-12-31"
-        defaultValue={expense?.occurred_on ?? (currentMonth === month ? today : '')} /></label>}
+      </fieldset> : <label className="field">{isCard ? 'Data da compra' : 'Data da despesa'}
+        <input type="date" required min="1900-01-01" max="9999-12-31" value={expenseDate}
+          onChange={event => setExpenseDate(event.target.value)} />
+      </label>}
+      {isCard && <div className="payment-date-fields">
+        <div className="fields-two">
+          <label className="field">Dia de vencimento<input readOnly value={dueDay ?? ''} placeholder="A configurar" /></label>
+          <label className="field">Vencimento previsto<input type="date" readOnly value={dueDate ?? ''} /></label>
+        </div>
+        {!dueDay && <p className="field-note">Configure o vencimento deste cartão na página Formas de pagamento.</p>}
+      </div>}
       <label className="field">Categoria
         <select value={category} required onChange={event => {
           setCategory(event.target.value)
@@ -329,7 +373,7 @@ function ExpenseForm({ expense, currency, month, horizon, classifications, tags,
       <TagPicker tags={tags} selected={tagIds} onChange={setTagIds} />
       <footer className="dialog-actions">
         <button type="button" className="button secondary" onClick={onClose} disabled={busy}>Cancelar</button>
-        <button type="submit" className="button primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar despesa'}</button>
+        <button type="submit" className="button primary" disabled={busy || (isCard && !dueDay)}>{busy ? 'Salvando…' : 'Salvar despesa'}</button>
       </footer>
     </form>
   </Modal>

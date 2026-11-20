@@ -14,6 +14,9 @@ ExpenseKind = Literal["avulsa", "fixa"]
 CreditKind = Literal["emprestimo", "financiamento"]
 CreditMode = Literal["unica", "individual"]
 IncomeCreditKind = Literal["avulso", "fixo"]
+PublicPaymentKind = Literal["credito", "debito", "pix", "boleto", "debito_automatico", "transferencia", "dinheiro", "outro"]
+PaymentKind = PublicPaymentKind | Literal["nao_informado", "financiamento"]
+DueDay = Annotated[int, Field(strict=True, ge=1, le=31)]
 
 
 class Input(BaseModel):
@@ -120,12 +123,34 @@ class ClassificationOutput(ClassificationInput):
     level: Literal[1, 2, 3]
 
 
+class PaymentMethodInput(Input):
+    name: Name
+    kind: PublicPaymentKind
+    due_day: DueDay | None = None
+
+    @model_validator(mode="after")
+    def check_due_day(self):
+        if self.kind == "credito" and self.due_day is None:
+            raise ValueError("Informe o dia de vencimento do cartão de crédito.")
+        if self.kind != "credito" and self.due_day is not None:
+            raise ValueError("O dia de vencimento é usado em cartões de crédito.")
+        return self
+
+
+class PaymentMethodOutput(BaseModel):
+    id: int
+    name: str
+    kind: PaymentKind
+    due_day: int | None
+
+
 class ExpenseInput(Input):
     occurred_on: date
     kind: ExpenseKind = "avulsa"
     ends_on: date | None = None
     credit_kind: CreditKind | None = None
     credit_mode: CreditMode | None = None
+    payment_method_id: RecordId | None = None
     amount_cents: PositiveMoney
     description: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] = ""
     department_id: RecordId
@@ -204,6 +229,9 @@ class ExpenseOutput(BaseModel):
     kind: ExpenseKind
     credit_kind: CreditKind | None = None
     credit_mode: CreditMode | None = None
+    payment_method: PaymentMethodOutput
+    payment_due_day: int | None = None
+    payment_due_on: date | None = None
     starts_on: date | None = None
     ends_on: date | None = None
     closed_on: date | None = None

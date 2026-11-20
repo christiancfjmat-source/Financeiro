@@ -129,6 +129,7 @@ def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path):
         migrated = client.get("/api/expenses?month=2026-10").json()[0]
         assert migrated["kind"] == "avulsa"
         assert migrated["amount_cents"] == 1250
+        assert migrated["payment_method"]["kind"] == "nao_informado"
         assert migrated["tags"][0]["name"] == "Antiga"
         tag = add_tag(client, "Reposição")
         payload = expense_payload(client, tag_ids=[tag["id"]])
@@ -141,6 +142,60 @@ def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path):
         assert restarted.get("/api/spending?month=2026-11").json()["budgets"][0]["available_cents"] == -32_599
         assert restarted.delete(budget_path).status_code == 204
         assert restarted.get("/api/spending?month=2026-11").json()["total_cents"] == 32_599
+
+
+def test_payment_methods_and_card_dates_preserve_purchase_month(client):
+    path = "/api/payment-methods"
+    defaults = {method["kind"]: method for method in client.get(path).json()}
+    assert {"credito", "debito", "pix", "boleto", "debito_automatico"}.issubset(defaults)
+    assert defaults["credito"]["due_day"] is None
+    card = {"name": "Cartão da casa", "kind": "credito", "due_day": 10}
+    assert client.post(path, json={**card, "due_day": None}).status_code == 422
+    assert client.post(path, json={**card, "due_day": 32}).status_code == 422
+    assert client.post(path, json={**card, "kind": "pix"}).status_code == 422
+    method = client.post(path, json=card)
+    assert method.status_code == 201, method.text
+    second = client.post(path, json={**card, "name": "Segundo cartão", "due_day": 31})
+    assert second.status_code == 201, second.text
+    assert client.post(path, json={**card, "name": " CARTÃO DA CASA "}).status_code == 409
+
+    payload = expense_payload(client, occurred_on="2026-11-20", payment_method_id=defaults["credito"]["id"])
+    assert client.post("/api/expenses", json=payload).status_code == 422
+    payload["payment_method_id"] = method.json()["id"]
+    saved = client.post("/api/expenses", json=payload)
+    assert saved.status_code == 201, saved.text
+    expense = saved.json()
+    assert expense["payment_method"]["name"] == "Cartão da casa"
+    assert expense["payment_due_on"] == "2026-12-10" and expense["payment_due_day"] == 10
+    assert client.get("/api/spending?month=2026-11").json()["total_cents"] == payload["amount_cents"]
+    assert client.get("/api/spending?month=2026-12").json()["total_cents"] == 0
+
+    method_path = f"{path}/{method.json()['id']}"
+    assert client.put(method_path, json={**card, "due_day": 11}).status_code == 200
+    assert client.delete(method_path).status_code == 409
+    assert client.put(method_path, json={**card, "kind": "pix", "due_day": None}).status_code == 409
+    recorded = client.get("/api/expenses?month=2026-11").json()[0]
+    assert recorded["payment_due_on"] == "2026-12-10"
+    edited = client.put(f"/api/expenses/{expense['id']}", json={**payload, "description": "Compra revisada"})
+    assert edited.status_code == 200 and edited.json()["payment_due_on"] == "2026-12-10"
+    february = client.post("/api/expenses", json={**payload, "occurred_on": "2028-02-27",
+                                                   "payment_method_id": second.json()["id"]})
+    assert february.status_code == 201 and february.json()["payment_due_on"] == "2028-02-29"
+
+
+def test_fixed_expense_payment_changes_preserve_earlier_months(client, monkeypatch):
+    monkeypatch.setattr(spending_api, "local_date", lambda: date(2026, 11, 20))
+    card = client.post("/api/payment-methods", json={"name": "Cartão", "kind": "credito", "due_day": 6}).json()
+    pix = next(method for method in client.get("/api/payment-methods").json() if method["kind"] == "pix")
+    payload = expense_payload(client, kind="fixa", occurred_on="2026-09-20", payment_method_id=card["id"])
+    saved = client.post("/api/expenses", json=payload)
+    assert saved.status_code == 201, saved.text
+    revised = client.put(f"/api/expenses/{saved.json()['id']}", json={**payload, "payment_method_id": pix["id"]})
+    assert revised.status_code == 200, revised.text
+    past, = client.get("/api/expenses?month=2026-10").json()
+    current, = client.get("/api/expenses?month=2026-11").json()
+    assert past["payment_method"]["id"] == card["id"] and past["payment_due_on"] == "2026-11-06"
+    assert current["payment_method"]["id"] == pix["id"] and current["payment_due_on"] is None
 
 
 def test_fixed_term_includes_start_and_end_months_without_double_counting(client, monkeypatch):

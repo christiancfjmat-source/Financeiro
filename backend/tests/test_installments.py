@@ -47,6 +47,7 @@ def test_contract_creates_independent_monthly_expenses(client):
     result = client.post("/api/expenses", json=settings)
     assert result.status_code == 201, result.text
     assert result.json()["installment"]["total"] == 12
+    assert result.json()["payment_method"]["kind"] == "financiamento"
 
     expenses = [expense_for(client, f"2027-{month:02d}")[0] for month in range(1, 13)]
     assert len({item["id"] for item in expenses}) == 12

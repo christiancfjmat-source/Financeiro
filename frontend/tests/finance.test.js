@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { addMonthsToDate, amountInput, followingMonth, formatMoney, localMonth, parseMoney } from '../src/finance.js'
+import { addMonthsToDate, amountInput, cardDueOn, followingMonth, formatMoney, localMonth, parseMoney } from '../src/finance.js'
 
 test('BRL input preserves cents and normalizes Brazilian separators', () => {
   assert.equal(parseMoney('14.014,87', 'Salário'), 1_401_487)
@@ -27,4 +27,12 @@ test('expense horizon handles leap days and end-of-month dates', () => {
   assert.equal(addMonthsToDate('2028-02-29', 36), '2031-02-28')
   assert.equal(addMonthsToDate('2026-11-20', 36), '2029-11-20')
   assert.equal(addMonthsToDate('2026-01-31', 25), '2028-02-29')
+})
+
+test('credit card due date uses the first applicable day and adjusts short months', () => {
+  assert.equal(cardDueOn('2026-11-20', 10), '2026-12-10')
+  assert.equal(cardDueOn('2026-11-20', 20), '2026-11-20')
+  assert.equal(cardDueOn('2028-02-27', 31), '2028-02-29')
+  assert.equal(cardDueOn('2026-12-31', 15), '2027-01-15')
+  assert.equal(cardDueOn('9999-12-31', 10), null)
 })

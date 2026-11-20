@@ -374,6 +374,31 @@ select { padding: 0 9px; }
   padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--soft);
 }
 .installment-info small { color: var(--muted); font-size: .82rem; }
+.expense-nature, .expense-modality { min-width: 0; margin: 0 0 12px; padding: 0; border: 0; }
+.expense-nature legend, .expense-modality legend { margin-bottom: 5px; font-size: .89rem; font-weight: 590; }
+.expense-toggle {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 4px;
+  border: 1px solid var(--border); border-radius: 9px; background: var(--soft);
+}
+.expense-toggle label { position: relative; display: grid; cursor: pointer; }
+.expense-toggle input { position: absolute; opacity: 0; }
+.expense-toggle span {
+  display: grid; place-items: center; padding: 6px; min-height: 36px; border-radius: 6px; text-align: center;
+  color: var(--muted); font-size: .82rem; font-weight: 630;
+}
+.expense-toggle input:checked + span { color: var(--action-ink); background: var(--accent); }
+.expense-toggle input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+.expense-nature:disabled .expense-toggle { opacity: .7; }
+.expense-nature:disabled .expense-toggle label { cursor: default; }
+.expense-modality label { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; font-size: .86rem; }
+.expense-modality input { accent-color: var(--accent); }
+.payment-date-fields { margin-bottom: 10px; }
+.payment-date-fields input[readonly] { background: var(--soft); }
+.payment-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 14px; align-items: start; }
+.payment-group { padding: 10px 14px; }
+.payment-group h2 { font-size: .94rem; font-weight: 680; margin: 3px 0 6px; }
+.payment-group ul { list-style: none; padding: 0; margin: 0; }
+.payment-group li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--border); }
 .credit-options {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px;
   min-width: 0; margin: 0 0 12px; padding: 0; border: 0;

@@ -8,8 +8,10 @@ from sqlalchemy.orm import contains_eager, joinedload, selectinload
 from .api import Db, MonthQuery, find, local_date, month_start, normalize_name, resolve_tags, save
 from .installments import create_installments, installment_details
 from .models import Classification, Expense, InstallmentAdvance, MonthlyBudget, Settings, Tag
+from .payment_methods import card_due_on, resolve_payment
 from .recurrence import expense_in_month, is_current_version, last_day, occurrence_date, projection_end
-from .schemas import AdvanceDetails, BudgetInput, BudgetProgress, CloseRecurrence, ExpenseInput, ExpenseOutput, TagInput, TagOutput
+from .schemas import (AdvanceDetails, BudgetInput, BudgetProgress, CloseRecurrence, ExpenseInput,
+                      ExpenseOutput, PaymentMethodOutput, TagInput, TagOutput)
 
 router = APIRouter(prefix="/api")
 
@@ -30,12 +32,17 @@ def expense_result(expense: Expense, reference: date, today: date):
     fixed = expense.kind == "fixa"
     agreement = expense.agreement
     advance = expense.advance
+    occurred_on = advance.paid_on if advance else occurrence_date(expense, reference)
+    method = expense.payment_method
     editable = advance is None and (not fixed or (reference >= current and is_current_version(expense, current)))
     return ExpenseOutput(
         id=expense.id, kind="fixa" if agreement else expense.kind,
         credit_kind=agreement.kind if agreement else expense.credit_kind,
         credit_mode="individual" if agreement else "unica" if expense.credit_kind else None,
-        occurred_on=advance.paid_on if advance else occurrence_date(expense, reference),
+        occurred_on=occurred_on,
+        payment_method=PaymentMethodOutput(id=method.id, name=method.name, kind=method.kind, due_day=method.due_day),
+        payment_due_day=expense.payment_due_day,
+        payment_due_on=card_due_on(occurred_on, expense.payment_due_day),
         starts_on=agreement.starts_on if agreement else expense.occurred_on if fixed else None,
         ends_on=agreement.ends_on if agreement else expense.ends_on, closed_on=expense.closed_on,
         installment=installment_details(expense) if agreement else None,
@@ -83,7 +90,7 @@ def list_expenses(db: Db, month: MonthQuery = None):
     today = local_date()
     reference = month_start(month) if month else today.replace(day=1)
     query = expense_ledger(select(Expense), reference, expense_horizon(db, today)).options(
-        selectinload(Expense.tags), joinedload(Expense.agreement), contains_eager(Expense.advance),
+        selectinload(Expense.tags), joinedload(Expense.agreement), joinedload(Expense.payment_method), contains_eager(Expense.advance),
     )
     results = (expense_result(expense, reference, today) for expense in db.scalars(query))
     return sorted(results, key=lambda item: (item.occurred_on, item.id), reverse=True)
@@ -104,8 +111,11 @@ def apply_expense(db: Db, expense: Expense, data: ExpenseInput, previous: Expens
             if subcategory.level != 3 or subcategory.parent_id != category.id or not subcategory.active:
                 raise HTTPException(422, "Selecione uma subcategoria ativa da categoria informada.")
     tags = resolve_tags(db, data.tag_ids)
-    for key, value in data.model_dump(exclude={"tag_ids", "credit_mode"}).items():
+    method, due_day = resolve_payment(db, data, source)
+    for key, value in data.model_dump(exclude={"tag_ids", "credit_mode", "payment_method_id"}).items():
         setattr(expense, key, value)
+    expense.payment_method = method
+    expense.payment_due_day = due_day
     expense.tags = tags
 
 
@@ -159,9 +169,10 @@ def edit_expense(expense_id: int, data: ExpenseInput, db: Db):
         if data.ends_on is not None and data.ends_on < current:
             raise HTTPException(422, "Selecione um término no mês atual ou em um mês futuro.")
         if expense.effective_from < current:
+            payment_changed = data.payment_method_id is not None and data.payment_method_id != expense.payment_method_id
             changed = any(getattr(expense, field) != value for field, value
-                          in data.model_dump(exclude={"tag_ids", "credit_mode"}).items())
-            if not changed and {tag.id for tag in expense.tags} == set(data.tag_ids):
+                          in data.model_dump(exclude={"tag_ids", "credit_mode", "payment_method_id"}).items())
+            if not changed and not payment_changed and {tag.id for tag in expense.tags} == set(data.tag_ids):
                 return expense_result(expense, current, today)
             version = Expense(effective_from=current)
             apply_expense(db, version, data, previous=expense)

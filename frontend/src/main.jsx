@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { House, LayoutDashboard, Layers3, Settings2, Moon, Sun, ChevronRight, ShieldCheck, Menu, X, ReceiptText, Tags } from 'lucide-react'
+import { House, LayoutDashboard, Layers3, Settings2, Moon, Sun, ChevronRight, ShieldCheck, Menu, X, ReceiptText, Tags, CreditCard } from 'lucide-react'
 import { api } from './api'
 import { ErrorNotice } from './components'
 import { Overview } from './overview'
 import { Categories } from './categories'
 import { ExpenseDialog, Expenses } from './expenses'
+import { PaymentMethodsPage } from './payment-methods'
 import { TagsPage } from './tags'
 import { Settings } from './settings'
 import { addMonthsToDate, localDate, localMonth } from './finance'
@@ -14,6 +15,7 @@ import './style.css'
 const pages = [
   { id: 'inicio', label: 'Visão geral', Icon: LayoutDashboard },
   { id: 'despesas', label: 'Despesas', Icon: ReceiptText },
+  { id: 'pagamentos', label: 'Formas de pagamento', Icon: CreditCard },
   { id: 'categorias', label: 'Categorias', Icon: Layers3 },
   { id: 'tags', label: 'Tags', Icon: Tags },
   { id: 'configuracoes', label: 'Configurações', Icon: Settings2 },
@@ -37,10 +39,10 @@ function App() {
   const refresh = useCallback(async () => {
     setError('')
     try {
-      const [settings, classifications, revisions, tags] = await Promise.all([
-        api('/settings'), api('/classifications'), api('/salary-revisions'), api('/tags'),
+      const [settings, classifications, revisions, tags, paymentMethods] = await Promise.all([
+        api('/settings'), api('/classifications'), api('/salary-revisions'), api('/tags'), api('/payment-methods'),
       ])
-      setData({ settings, classifications, revisions, tags })
+      setData({ settings, classifications, revisions, tags, paymentMethods })
     } catch (failure) {
       setError(failure.message)
     }
@@ -138,13 +140,14 @@ function App() {
           }} />}
         {data && page.id === 'categorias' && <Categories items={data.classifications} settings={data.settings}
           month={month} setMonth={setMonth} refresh={refresh} notify={setNotice} />}
+        {data && page.id === 'pagamentos' && <PaymentMethodsPage methods={data.paymentMethods} refresh={refresh} notify={setNotice} />}
         {data && page.id === 'tags' && <TagsPage tags={data.tags} refresh={refresh} notify={setNotice} />}
         {data && page.id === 'configuracoes' && <Settings settings={data.settings} revisions={data.revisions}
           referenceMonth={month} setMonth={setMonth} horizon={horizon} tags={data.tags} refresh={refresh} notify={setNotice} />}
       </main>
     </div>
     {data && expenseDialog && <ExpenseDialog {...expenseDialog} classifications={data.classifications}
-      tags={data.tags} currency={data.settings.currency} month={month} horizon={horizon}
+      tags={data.tags} paymentMethods={data.paymentMethods} currency={data.settings.currency} month={month} horizon={horizon}
       onClose={() => setExpenseDialog(null)} onSaved={expenseSaved} />}
     {notice && <div className="toast" role="status">{notice}</div>}
   </div>
