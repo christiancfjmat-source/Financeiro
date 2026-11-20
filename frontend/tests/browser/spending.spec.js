@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
-import { addMonthsToDate, localDate, localMonth } from '../../src/finance.js'
+import { addMonthsToDate, followingMonth, localDate, localMonth, monthLabel } from '../../src/finance.js'
 
-test('cadastros de tags, tetos e despesas ficam ligados ao mês selecionado', async ({ page }) => {
+test('configura um teto recorrente e consulta o consumo por mês', async ({ page }) => {
   const month = localMonth()
   await page.goto('/')
   await page.getByRole('link', { name: 'Tags', exact: true }).click()
@@ -11,11 +11,18 @@ test('cadastros de tags, tetos e despesas ficam ligados ao mês selecionado', as
   await expect(page.getByText('Tag criada.')).toBeVisible()
 
   await page.getByRole('link', { name: 'Categorias', exact: true }).click()
+  const picker = page.getByLabel('Mês de referência')
+  await picker.fill(addMonthsToDate(localDate(), -1).slice(0, 7))
   await page.getByRole('searchbox', { name: 'Buscar categorias' }).fill('supermercado')
   await page.getByRole('button', { name: 'Configurar teto de Supermercado' }).click()
+  await expect(page.getByText(`Vigência a partir de ${monthLabel(month)}`)).toBeVisible()
   await page.getByLabel('Valor do teto mensal').fill('850,00')
   await page.getByRole('button', { name: 'Salvar teto' }).click()
+  await expect(page.getByText('Teto mensal salvo.')).toBeVisible()
+  await expect(page.getByRole('meter')).toHaveCount(0)
+  await picker.fill(followingMonth(month))
   await expect(page.getByText(/850,00 disponível/)).toBeVisible()
+  await picker.fill(month)
 
   await page.getByRole('link', { name: 'Visão geral', exact: true }).click()
   await page.getByRole('button', { name: 'Nova despesa' }).click()
@@ -69,7 +76,7 @@ test('soma os tetos por departamento e mostra as categorias ao expandir', async 
   const classifications = await (await page.request.get('/api/classifications')).json()
   for (const [name, limit_cents] of [['Aluguel', 20_000], ['Energia elétrica', 15_000], ['Consultas', 70_000]]) {
     const category = classifications.find(item => item.name === name)
-    const response = await page.request.put(`/api/budgets/${category.id}?month=${month}`, { data: { limit_cents } })
+    const response = await page.request.put(`/api/budgets/${category.id}`, { data: { limit_cents } })
     expect(response.ok()).toBe(true)
   }
 

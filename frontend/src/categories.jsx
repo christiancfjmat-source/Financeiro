@@ -53,7 +53,7 @@ export function Categories({ items, settings, month, setMonth, refresh, notify }
         <div className="tree-name"><strong>{item.name}</strong><small>{levelNames[item.level - 1]}</small></div>
         {!item.active && <span className="inactive">Inativo</span>}
         <div className="tree-actions">
-          {item.level === 2 && <button className="icon-button budget-button" type="button" disabled={!report}
+          {item.level === 2 && <button className="icon-button budget-button" type="button"
             aria-label={`Configurar teto de ${item.name}`} title="Configurar teto mensal"
             onClick={() => setModal({ mode: 'budget', item })}><Gauge size={16} /> Teto</button>}
           {item.level < 3 && <button className="icon-button" type="button" aria-label={`Adicionar item em ${item.name}`}
@@ -78,7 +78,7 @@ export function Categories({ items, settings, month, setMonth, refresh, notify }
     <section className="page-heading">
       <div><h1>Categorias</h1><p>Organize as despesas e configure os tetos mensais de cada categoria.</p></div>
       <div className="heading-actions">
-        <MonthPicker month={month} setMonth={setMonth} label="Mês dos tetos" />
+        <MonthPicker month={month} setMonth={setMonth} label="Mês de referência" />
         <button type="button" className="button primary" onClick={() => setModal({ mode: 'edit' })}><Plus size={18} /> Novo item</button>
       </div>
     </section>
@@ -95,8 +95,7 @@ export function Categories({ items, settings, month, setMonth, refresh, notify }
       <ul className="tree">{(children.get(null) || []).map(renderNode)}</ul>
       {!visible.size && <p className="empty">Nenhum item encontrado.</p>}
     </section>
-    {modal?.mode === 'budget' && <BudgetDialog category={modal.item} budget={budgets.get(modal.item.id)}
-      used={report?.by_category[modal.item.id] ?? 0} settings={settings} month={month}
+    {modal?.mode === 'budget' && <BudgetDialog category={modal.item} settings={settings}
       onClose={() => setModal(null)} onSaved={message => { setModal(null); reload(); notify(message) }} />}
     {modal && modal.mode !== 'budget' && <CategoryModal {...modal} items={items} onClose={() => setModal(null)}
       onSuccess={async (message, parent) => {

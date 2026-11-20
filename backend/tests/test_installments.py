@@ -78,10 +78,7 @@ def test_advance_moves_payment_with_original_classification_and_value_history(cl
     january = expense_for(client, "2027-01")[0]
     february = expense_for(client, "2027-02")[0]
     category = data["category_id"]
-    november_budget = f"/api/budgets/{category}?month=2026-11"
-    january_budget = f"/api/budgets/{category}?month=2027-01"
-    for path in (november_budget, january_budget):
-        assert client.put(path, json={"limit_cents": 300_000}).status_code == 200
+    assert client.put(f"/api/budgets/{category}", json={"limit_cents": 300_000}).status_code == 200
 
     result = anticipate(client, "2026-11-19", (january["id"], 108_000), (february["id"], 101_150))
     assert result.status_code == 204, result.text

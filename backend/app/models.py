@@ -203,13 +203,10 @@ class Expense(Base):
     )
 
 
-class MonthlyBudget(Base):
-    __tablename__ = "monthly_budgets"
-    __table_args__ = (
-        CheckConstraint("limit_cents >= 0", name="budget_nonnegative"),
-        Index("ix_monthly_budgets_month", "month"),
-    )
+class BudgetRevision(Base):
+    __tablename__ = "budget_revisions"
+    __table_args__ = (CheckConstraint("limit_cents >= 0", name="budget_revision_nonnegative"),)
 
     category_id: Mapped[int] = mapped_column(ForeignKey("classifications.id", ondelete="RESTRICT"), primary_key=True)
-    month: Mapped[date] = mapped_column(primary_key=True)
-    limit_cents: Mapped[int] = mapped_column(BigInteger)
+    effective_month: Mapped[date] = mapped_column(primary_key=True)
+    limit_cents: Mapped[int | None] = mapped_column(BigInteger)

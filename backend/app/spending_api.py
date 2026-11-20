@@ -2,12 +2,12 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from fastapi import APIRouter, HTTPException, Response
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import contains_eager, joinedload, selectinload
 
 from .api import Db, MonthQuery, find, local_date, month_start, normalize_name, resolve_tags, save
 from .installments import create_installments, installment_details
-from .models import Classification, Expense, InstallmentAdvance, MonthlyBudget, PurchaseInstallment, Settings, Tag
+from .models import BudgetRevision, Classification, Expense, InstallmentAdvance, PurchaseInstallment, Settings, Tag
 from .payment_methods import card_due_on, resolve_payment
 from .purchase_installments import set_purchase_installments
 from .recurrence import expense_in_month, is_current_version, last_day, occurrence_date, projection_end
@@ -237,26 +237,47 @@ def delete_expense(expense_id: int, db: Db):
     return Response(status_code=204)
 
 
-@router.put("/budgets/{category_id}", response_model=BudgetInput)
-def set_budget(category_id: int, data: BudgetInput, db: Db, month: MonthQuery = None):
+def budget_category(db: Db, category_id: int):
     category = find(db, Classification, category_id)
     if category.level != 2:
         raise HTTPException(422, "O teto mensal deve ser definido em uma categoria.")
-    reference = month_start(month)
-    budget = db.get(MonthlyBudget, (category_id, reference))
-    if budget is None:
-        budget = MonthlyBudget(category_id=category_id, month=reference)
-        db.add(budget)
-    budget.limit_cents = data.limit_cents
-    save(db, "Não foi possível salvar o teto da categoria.")
-    return budget
+
+
+def budget_limit_at(db: Db, category_id: int, reference: date):
+    return db.scalar(select(BudgetRevision.limit_cents).where(
+        BudgetRevision.category_id == category_id, BudgetRevision.effective_month <= reference,
+    ).order_by(BudgetRevision.effective_month.desc()).limit(1))
+
+
+def write_budget(db: Db, category_id: int, month: str | None, limit_cents: int | None):
+    budget_category(db, category_id)
+    reference = local_date().replace(day=1)
+    if month is not None and month_start(month) != reference:
+        raise HTTPException(422, "O teto é alterado a partir do mês atual.")
+    db.execute(delete(BudgetRevision).where(
+        BudgetRevision.category_id == category_id, BudgetRevision.effective_month >= reference,
+    ))
+    if limit_cents is not None or budget_limit_at(db, category_id, reference) is not None:
+        db.add(BudgetRevision(category_id=category_id, effective_month=reference, limit_cents=limit_cents))
+    save(db, "Não foi possível atualizar o teto da categoria.")
+
+
+@router.get("/budgets/{category_id}")
+def read_budget(category_id: int, db: Db):
+    budget_category(db, category_id)
+    reference = local_date().replace(day=1)
+    return {"month": reference.isoformat()[:7], "limit_cents": budget_limit_at(db, category_id, reference)}
+
+
+@router.put("/budgets/{category_id}", response_model=BudgetInput)
+def set_budget(category_id: int, data: BudgetInput, db: Db, month: MonthQuery = None):
+    write_budget(db, category_id, month, data.limit_cents)
+    return data
 
 
 @router.delete("/budgets/{category_id}", status_code=204)
 def delete_budget(category_id: int, db: Db, month: MonthQuery = None):
-    budget = find(db, MonthlyBudget, (category_id, month_start(month)))
-    db.delete(budget)
-    save(db, "Não foi possível remover o teto da categoria.")
+    write_budget(db, category_id, month, None)
     return Response(status_code=204)
 
 
@@ -275,8 +296,12 @@ def read_spending(db: Db, month: MonthQuery = None):
         departments[department] += subtotal
         count += quantity
 
-    configured = db.scalars(select(MonthlyBudget).where(MonthlyBudget.month == reference)
-                            .order_by(MonthlyBudget.category_id))
+    latest = select(BudgetRevision.category_id, func.max(BudgetRevision.effective_month).label("month")).where(
+        BudgetRevision.effective_month <= reference,
+    ).group_by(BudgetRevision.category_id).subquery()
+    configured = db.scalars(select(BudgetRevision).join(latest, and_(
+        BudgetRevision.category_id == latest.c.category_id, BudgetRevision.effective_month == latest.c.month,
+    )).where(BudgetRevision.limit_cents.is_not(None)).order_by(BudgetRevision.category_id))
     budgets = []
     for budget in configured:
         spent = categories.get(budget.category_id, 0)

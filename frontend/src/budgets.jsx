@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api'
 import { DeleteModal, ErrorNotice, Modal, MoneyInput } from './components'
 import { budgetPercent, formatMoney, monthLabel, parseMoney } from './finance'
@@ -38,12 +38,22 @@ export function BudgetUsage({ budget, settings }) {
   </div>
 }
 
-export function BudgetDialog({ category, budget, used, settings, month, onClose, onSaved }) {
+export function BudgetDialog({ category, settings, onClose, onSaved }) {
+  const [budget, setBudget] = useState(null)
   const [removing, setRemoving] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const path = `/budgets/${category.id}?month=${month}`
-  const reference = monthLabel(month)
+  const path = `/budgets/${category.id}`
+  const reference = budget && monthLabel(budget.month)
+  const savePath = budget && `${path}?month=${budget.month}`
+
+  useEffect(() => {
+    const controller = new AbortController()
+    api(path, 'GET', undefined, controller.signal)
+      .then(data => { if (!controller.signal.aborted) setBudget(data) })
+      .catch(failure => { if (!controller.signal.aborted) setError(failure.message) })
+    return () => controller.abort()
+  }, [path])
 
   async function submit(event) {
     event.preventDefault()
@@ -52,7 +62,7 @@ export function BudgetDialog({ category, budget, used, settings, month, onClose,
     setError('')
     try {
       const limit = parseMoney(values.get('limit'), 'Teto mensal')
-      await api(path, 'PUT', { limit_cents: limit })
+      await api(savePath, 'PUT', { limit_cents: limit })
       onSaved('Teto mensal salvo.')
     } catch (failure) {
       setError(failure.message)
@@ -62,22 +72,23 @@ export function BudgetDialog({ category, budget, used, settings, month, onClose,
   }
 
   if (removing) return <DeleteModal title="Excluir teto mensal" onClose={onClose}
-    action={() => api(path, 'DELETE')} onSuccess={() => onSaved('Teto mensal excluído.')}>
-    <p>Excluir o teto de <strong>{category.name}</strong> para {reference}?</p>
+    action={() => api(savePath, 'DELETE')} onSuccess={() => onSaved('Teto mensal excluído.')}>
+    <p>Excluir o teto de <strong>{category.name}</strong> de {reference} em diante?</p>
   </DeleteModal>
 
   return <Modal title={`Teto mensal · ${category.name}`} onClose={() => { if (!busy) onClose() }}>
-    <form onSubmit={submit}>
-      <ErrorNotice message={error} />
-      <p className="budget-reference">{reference} · {formatMoney(used, settings.currency)} gastos</p>
+    <ErrorNotice message={error} />
+    {!budget && !error && <p role="status">Carregando teto…</p>}
+    {budget && <form onSubmit={submit}>
+      <p className="budget-reference">Vigência a partir de {reference}</p>
       <MoneyInput label="Valor do teto mensal" name="limit" currency={settings.currency}
-        cents={budget?.limit_cents} autoFocus required />
-      <p className="field-note">O teto vale para o mês selecionado e inclui os gastos das subcategorias.</p>
+        cents={budget.limit_cents} autoFocus required />
+      <p className="field-note">O valor vale para todos os meses a partir do mês atual. O histórico dos meses anteriores é preservado.</p>
       <footer className="dialog-actions budget-actions">
-        {budget && <button className="button text-danger" type="button" disabled={busy} onClick={() => setRemoving(true)}>Excluir teto</button>}
+        {budget.limit_cents !== null && <button className="button text-danger" type="button" disabled={busy} onClick={() => setRemoving(true)}>Excluir teto</button>}
         <button className="button secondary" type="button" disabled={busy} onClick={onClose}>Cancelar</button>
         <button className="button primary" type="submit" disabled={busy}>{busy ? 'Salvando…' : 'Salvar teto'}</button>
       </footer>
-    </form>
+    </form>}
   </Modal>
 }

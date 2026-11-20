@@ -5,9 +5,10 @@ test('usa o crédito eventual do mês nos indicadores de renda e saldo', async (
   const month = addMonthsToDate(localDate(), 18).slice(0, 7)
   const classifications = await (await page.request.get('/api/classifications')).json()
   const salary = await (await page.request.get(`/api/salary?month=${month}`)).json()
-  for (const [name, limit_cents] of [['Aluguel', 200_000], ['Supermercado', 60_000]]) {
-    const category = classifications.find(item => item.name === name)
-    const response = await page.request.put(`/api/budgets/${category.id}?month=${month}`, { data: { limit_cents } })
+  const limits = [['Aluguel', 200_000], ['Supermercado', 60_000]]
+    .map(([name, limit]) => [classifications.find(item => item.name === name).id, limit])
+  for (const [id, limit_cents] of limits) {
+    const response = await page.request.put(`/api/budgets/${id}`, { data: { limit_cents } })
     expect(response.ok()).toBe(true)
   }
   const category = classifications.find(item => item.name === 'Combustível')
@@ -59,8 +60,11 @@ test('usa o crédito eventual do mês nos indicadores de renda e saldo', async (
 
   await page.getByLabel('Mês de referência').fill(followingMonth(month))
   await expect(committed.getByText(`Renda do mês ${formatMoney(salary.amount_cents, 'BRL')}`)).toBeVisible()
-  await expect(plan.getByText('Tetos do mês R$ 0,00')).toBeVisible()
+  await expect(plan.getByText('Tetos do mês R$ 2.600,00')).toBeVisible()
   await expect(donut.getByText('Nenhuma despesa registrada neste mês.')).toBeVisible()
+  for (const [id] of limits) {
+    expect((await page.request.delete(`/api/budgets/${id}`)).ok()).toBe(true)
+  }
 })
 
 test('mantém a marca de 100% da renda quando teto e despesas ultrapassam esse valor', async ({ page }) => {
@@ -69,7 +73,7 @@ test('mantém a marca de 100% da renda quando teto e despesas ultrapassam esse v
   const { amount_cents: income } = await (await page.request.get(`/api/salary?month=${month}`)).json()
   const supermarket = categories.find(item => item.name === 'Supermercado')
   const health = categories.find(item => item.name === 'Consultas')
-  const budget = await page.request.put(`/api/budgets/${supermarket.id}?month=${month}`, {
+  const budget = await page.request.put(`/api/budgets/${supermarket.id}`, {
     data: { limit_cents: Math.floor(income * 1.6) },
   })
   expect(budget.ok()).toBe(true)
@@ -101,6 +105,7 @@ test('mantém a marca de 100% da renda quando teto e despesas ultrapassam esse v
   const colors = await entries.locator('.donut-key').evaluateAll(keys => keys.map(key => getComputedStyle(key).backgroundColor))
   expect(new Set(colors).size).toBe(2)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
+  expect((await page.request.delete(`/api/budgets/${supermarket.id}`)).ok()).toBe(true)
 })
 
 test('cadastra crédito fixo com prazo e tag pela Visão geral', async ({ page }) => {

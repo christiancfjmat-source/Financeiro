@@ -28,7 +28,7 @@ Após atualizar o código, encerre o servidor e execute `atualizar.bat`. O scrip
 - Use **Novo crédito** na **Visão geral** ou em **Configurações → Créditos**. Um crédito **avulso** entra em um único mês, com data opcional. Um crédito **fixo** entra mensalmente a partir da data de início, com término opcional. Os dois aceitam descrição e tags. Use **Finalizar** em **Configurações → Créditos** para encerrar um crédito fixo sem prazo.
 - **Renda comprometida** mostra a proporção gasta da renda mensal, que soma o salário vigente e os créditos daquele mês. **Saldo do mês** subtrai as despesas da renda mensal. **Saldo se atingir os tetos** subtrai a soma dos tetos das categorias, considerando R$ 0,00 para categorias sem teto.
 - Em **Tags**, cadastre os nomes que deseja usar nos lançamentos. Uma tag pode aparecer em despesas de vários departamentos. Para excluir uma tag vinculada, retire-a primeiro dos lançamentos.
-- Em **Categorias**, escolha o mês, localize a categoria e use **Teto** na linha correspondente. Na **Visão geral**, o teto do departamento é a soma dos tetos das suas categorias no mês selecionado. Categorias sem teto contribuem com R$ 0,00. Expanda o departamento para ver os tetos e o consumo de cada categoria. Os gastos das subcategorias entram no teto da categoria.
+- Em **Categorias**, use **Teto** na linha da categoria para definir um valor mensal do mês atual em diante. Alterações e exclusões preservam os tetos dos meses anteriores. O mês de referência serve para consultar os tetos e gastos de cada período. Na **Visão geral**, o teto do departamento é a soma dos tetos das suas categorias no mês selecionado. Categorias sem teto contribuem com R$ 0,00. Expanda o departamento para ver os tetos e o consumo de cada categoria. Os gastos das subcategorias entram no teto da categoria.
 - A moeda selecionada define a apresentação dos valores nominais. Alterar a moeda preserva os valores digitados.
 
 ## Arquitetura
@@ -62,7 +62,7 @@ A especificação [OpenAPI em JSON](http://127.0.0.1:8000/openapi.json) descreve
 | `/installment-advances/options?paid_on=AAAA-MM-DD` | Consultar parcelas elegíveis na data de pagamento. |
 | `/installment-advances` | Registrar antecipações com data e valores pagos por parcela, em uma única transação. |
 | `/tags` | Listar e criar tags. Use `/{id}` para editar e excluir. |
-| `/budgets/{category_id}?month=AAAA-MM` | Salvar ou remover o teto da categoria para o mês. |
+| `/budgets/{category_id}` | Consultar, salvar ou remover o teto da categoria do mês atual em diante. |
 | `/spending?month=AAAA-MM` | Consultar totais do mês e progresso dos tetos configurados. |
 | `/health` | Consultar a disponibilidade do serviço |
 

@@ -10,7 +10,8 @@ from sqlalchemy import func, select
 from backend.app.db import ROOT, engine_for
 from backend.app.main import create_app
 from backend.app.models import Expense, PurchaseInstallment
-from backend.app import spending_api
+from backend.app import api, spending_api
+from backend.app.recurrence import projection_end
 
 
 @pytest.fixture
@@ -36,14 +37,14 @@ def add_tag(client, name):
     return result.json()
 
 
-def test_budget_sums_subcategories_once_and_recalculates_on_edit_or_delete(client):
+def test_budget_sums_subcategories_once_and_recalculates_on_edit_or_delete(client, monkeypatch):
+    monkeypatch.setattr(spending_api, "local_date", lambda: date(2026, 11, 20))
     payload = expense_payload(client)
     category = payload["category_id"]
     department = payload["department_id"]
     sub = client.post("/api/classifications", json={"name": "Hortifruti", "parent_id": category}).json()
     tags = [add_tag(client, "Casa"), add_tag(client, "Semanal")]
-    assert client.put(f"/api/budgets/{category}?month=2026-11", json={"limit_cents": 85_000}).status_code == 200
-    assert client.put(f"/api/budgets/{category}?month=2026-12", json={"limit_cents": 90_000}).status_code == 200
+    assert client.put(f"/api/budgets/{category}", json={"limit_cents": 85_000}).status_code == 200
     first = client.post("/api/expenses", json=payload)
     assert first.status_code == 201, first.text
     second = client.post("/api/expenses", json={**payload, "subcategory_id": sub["id"], "amount_cents": 60_001,
@@ -60,11 +61,42 @@ def test_budget_sums_subcategories_once_and_recalculates_on_edit_or_delete(clien
 
     first_path = f"/api/expenses/{first.json()['id']}"
     assert client.put(first_path, json={**payload, "occurred_on": "2026-12-01"}).status_code == 200
-    assert client.get("/api/spending?month=2026-12").json()["budgets"][0]["available_cents"] == 57_401
+    assert client.get("/api/spending?month=2026-12").json()["budgets"][0]["available_cents"] == 52_401
     assert client.get("/api/spending?month=2026-11").json()["budgets"][0]["available_cents"] == 24_999
     assert client.delete(f"/api/expenses/{second.json()['id']}").status_code == 204
     assert client.get("/api/expenses?month=2026-11").json() == []
     assert client.get("/api/spending?month=2026-11").json()["budgets"][0]["available_cents"] == 85_000
+
+
+def test_budget_changes_and_removal_apply_from_current_month_onward(client, monkeypatch):
+    category = items(client)["Supermercado"]["id"]
+    path = f"/api/budgets/{category}"
+    today = date(2026, 11, 20)
+    monkeypatch.setattr(spending_api, "local_date", lambda: today)
+
+    def limit(month):
+        budgets = client.get(f"/api/spending?month={month}").json()["budgets"]
+        return budgets[0]["limit_cents"] if budgets else None
+
+    assert client.get(path).json() == {"month": "2026-11", "limit_cents": None}
+    assert client.put(path, json={"limit_cents": 85_000}).status_code == 200
+    assert [limit(month) for month in ("2026-10", "2026-11", "2026-12", "2034-01")] == [None, 85_000, 85_000, 85_000]
+
+    today = date(2026, 12, 14)
+    assert client.put(f"{path}?month=2027-01", json={"limit_cents": 90_000}).status_code == 422
+    assert client.delete(f"{path}?month=2026-11").status_code == 422
+    assert client.get(path).json() == {"month": "2026-12", "limit_cents": 85_000}
+    assert client.put(path, json={"limit_cents": 90_000}).status_code == 200
+    assert client.put(path, json={"limit_cents": 0}).status_code == 200
+    assert [limit(month) for month in ("2026-11", "2026-12", "2027-01")] == [85_000, 0, 0]
+
+    today = date(2027, 1, 3)
+    assert client.delete(path).status_code == 204
+    assert [limit(month) for month in ("2026-11", "2026-12", "2027-01", "2027-02")] == [85_000, 0, None, None]
+
+    today = date(2027, 2, 10)
+    assert client.put(path, json={"limit_cents": 92_000}).status_code == 200
+    assert [limit(month) for month in ("2027-01", "2027-02", "2027-03")] == [None, 92_000, 92_000]
 
 
 def test_validation_and_linked_tags(client):
@@ -104,7 +136,8 @@ def test_existing_expense_keeps_department_after_category_moves(client):
     assert report["by_category"] == {str(payload["category_id"]): 65_198}
 
 
-def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path):
+def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(spending_api, "local_date", lambda: date(2026, 11, 20))
     path = tmp_path / "upgrade.sqlite3"
     engine = engine_for(path)
     config = Config()
@@ -135,7 +168,7 @@ def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path):
         assert migrated["tags"][0]["name"] == "Antiga"
         tag = add_tag(client, "Reposição")
         payload = expense_payload(client, tag_ids=[tag["id"]])
-        budget_path = f"/api/budgets/{payload['category_id']}?month=2026-11"
+        budget_path = f"/api/budgets/{payload['category_id']}"
         assert client.post("/api/expenses", json=payload).status_code == 201
         assert client.put(budget_path, json={"limit_cents": 0}).status_code == 200
 
@@ -144,6 +177,46 @@ def test_v2_database_upgrades_existing_expenses_and_tags(tmp_path: Path):
         assert restarted.get("/api/spending?month=2026-11").json()["budgets"][0]["available_cents"] == -32_599
         assert restarted.delete(budget_path).status_code == 204
         assert restarted.get("/api/spending?month=2026-11").json()["total_cents"] == 32_599
+
+
+def test_monthly_budget_migration_preserves_past_limits_and_gaps(tmp_path):
+    path = tmp_path / "legacy-budgets.sqlite3"
+    today = api.local_date().replace(day=1)
+    months = {offset: projection_end(today, offset).isoformat() for offset in (-4, -3, -2, -1, 0, 1, 2, 3)}
+    engine = engine_for(path)
+    config = Config()
+    config.set_main_option("script_location", str(ROOT / "backend" / "migrations").replace("%", "%%"))
+    legacy_budgets = [
+        ("Supermercado", -4, 12_000), ("Supermercado", -2, 0), ("Supermercado", -1, 15_000),
+        ("Supermercado", 0, 85_000), ("Supermercado", 1, 90_000), ("Aluguel", -1, 20_000),
+        ("Consultas", 1, 70_000), ("Consultas", 2, 75_000),
+    ]
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            config.attributes["connection"] = connection
+            command.upgrade(config, "0009")
+            connection.exec_driver_sql(
+                "INSERT INTO monthly_budgets (category_id, month, limit_cents) "
+                "SELECT id, ?, ? FROM classifications WHERE name = ?",
+                [(months[offset], limit, name) for name, offset, limit in legacy_budgets],
+            )
+    finally:
+        engine.dispose()
+
+    with TestClient(create_app(path)) as client:
+        names = {item["id"]: item["name"] for item in items(client).values()}
+
+        def limits(offset):
+            report = client.get(f"/api/spending?month={months[offset][:7]}").json()
+            return {names[budget["category_id"]]: budget["limit_cents"] for budget in report["budgets"]}
+
+        assert limits(-4) == {"Supermercado": 12_000}
+        assert limits(-3) == {}
+        assert limits(-2) == {"Supermercado": 0}
+        assert limits(-1) == {"Supermercado": 15_000, "Aluguel": 20_000}
+        for offset in (0, 1, 2, 3):
+            assert limits(offset) == {"Supermercado": 85_000, "Consultas": 70_000}
 
 
 def test_payment_methods_and_card_dates_preserve_purchase_month(client):
@@ -237,7 +310,8 @@ def test_purchase_installments_split_cents_and_use_payment_day(client):
         assert connection.scalar(select(func.count(PurchaseInstallment.expense_id))) == 0
 
 
-def test_card_purchase_starts_at_due_date_and_keeps_card_day(client):
+def test_card_purchase_starts_at_due_date_and_keeps_card_day(client, monkeypatch):
+    monkeypatch.setattr(spending_api, "local_date", lambda: date(2026, 2, 10))
     card = client.post("/api/payment-methods", json={"name": "Cartão", "kind": "credito", "due_day": 30}).json()
     payload = expense_payload(client, occurred_on="2026-01-31", payment_method_id=card["id"],
                               amount_cents=31_001, installment_count=3)
@@ -248,7 +322,7 @@ def test_card_purchase_starts_at_due_date_and_keeps_card_day(client):
     march, = client.get("/api/expenses?month=2026-03").json()
     assert march["payment_due_on"] == "2026-03-30"
     assert march["amount_cents"] == 10_334
-    budget_path = f"/api/budgets/{payload['category_id']}?month=2026-03"
+    budget_path = f"/api/budgets/{payload['category_id']}"
     assert client.put(budget_path, json={"limit_cents": 15_000}).status_code == 200
     assert client.get("/api/spending?month=2026-03").json()["budgets"][0]["available_cents"] == 4_666
 
@@ -274,7 +348,7 @@ def test_fixed_term_includes_start_and_end_months_without_double_counting(client
     assert result.status_code == 201, result.text
     assert result.json()["can_close"] is False
     category = data["category_id"]
-    assert client.put(f"/api/budgets/{category}?month=2026-02", json={"limit_cents": 50_000}).status_code == 200
+    assert client.put(f"/api/budgets/{category}", json={"limit_cents": 50_000}).status_code == 200
     assert client.post("/api/expenses", json={**data, "kind": "avulsa", "ends_on": None,
                                              "occurred_on": "2026-02-20", "amount_cents": 5_501}).status_code == 201
     february = client.get("/api/expenses?month=2026-02").json()
